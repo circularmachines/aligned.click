@@ -138,7 +138,18 @@ CSP = ("default-src 'none'; "
        "script-src 'self' 'unsafe-inline'; "
        "style-src 'self' 'unsafe-inline'; "
        "img-src 'self' data: https:; "
-       "connect-src 'self' https://public.api.bsky.app https://plc.directory; "
+       # Same lesson as form-action, one directive down. The post cards resolve
+       # a DID at plc.directory, read the PDS out of the DID document, and then
+       # fetch the record from *that* host — which is whichever machine holds
+       # that person's repo, so it is not a list anybody can write down. With
+       # the two hosts named here the resolution succeeded and the record fetch
+       # was blocked, which the card reports as "Failed to fetch".
+       #
+       # `img-src https:` above is already the wider hole of the two, so the
+       # narrow list was buying less than it looked like it was. `'self'` is
+       # not redundant: locally this page is served over http on 127.0.0.1,
+       # and `https:` alone would block it talking to its own server.
+       "connect-src 'self' https:; "
        "font-src 'self'; "
        "base-uri 'none'; "
        "frame-ancestors 'none'")
