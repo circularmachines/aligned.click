@@ -12,7 +12,11 @@
      rides in the document. `script-src 'self'` is the point of it: every
      library this page uses is in shared/, so nothing may be fetched from a
      CDN even if a tag for one reappears. `connect-src https:` stays open
-     because reading atproto means talking to whichever PDS hosts the author. -->
+     because reading atproto means talking to whichever PDS hosts the author.
+     `form-action 'none'` is safe *here* and is not on the chat side: this page
+     has no forms. The chat's login is a form that redirects to whichever PDS
+     hosts the handle, and Chrome and WebKit apply form-action to the redirect
+     target — which silently cancelled every login. Do not copy this line over. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src https:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
 <script type="module" src="shared/atproto-wc.js"></script>
 <script src="shared/marked.min.js"></script>

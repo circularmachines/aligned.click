@@ -117,6 +117,23 @@ GLOBAL_EVENTS = {"server.connected"}
 # `'unsafe-inline'` is there because the whole application is one inline script
 # and one inline style; it is not what this policy is for. `connect-src 'self'`
 # is: an injected script still could not send anything off this origin.
+# **No `form-action`, deliberately.** It was here for one afternoon and it
+# broke every login on the service, including for people already signed in the
+# moment they signed out.
+#
+# Logging in is a form that submits to `/login`, which answers 302 to the
+# authorize URL on whichever PDS hosts that handle. Chrome and WebKit enforce
+# `form-action` against the *redirect target* of a submission, not just its
+# immediate action — so `'self'` cancelled the navigation to the PDS silently.
+# No error, no console message the user would find, no request reaching
+# anything: the browser simply stayed put, which reads exactly like "the login
+# page bounced me back". Firefox does not do this, so it depends on the
+# browser too.
+#
+# It cannot be fixed by listing hosts, because the whole point of atproto is
+# that the PDS is wherever that person keeps their repo. `form-action` does not
+# fall back to `default-src`, so leaving it out is not a hole in the rest of
+# this policy — it restores the default of not restricting where forms go.
 CSP = ("default-src 'none'; "
        "script-src 'self' 'unsafe-inline'; "
        "style-src 'self' 'unsafe-inline'; "
@@ -124,7 +141,6 @@ CSP = ("default-src 'none'; "
        "connect-src 'self' https://public.api.bsky.app https://plc.directory; "
        "font-src 'self'; "
        "base-uri 'none'; "
-       "form-action 'self'; "
        "frame-ancestors 'none'")
 
 CONTENT_TYPES = {
