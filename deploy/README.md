@@ -20,10 +20,20 @@ it checking who is asking.
 
 ## Getting the code there
 
+Clone it. The repo is public, so this needs no key on the server:
+
+    git clone https://tangled.org/aligned.click/agent ~/aligned.click
+
+Updating later is `git pull && sudo deploy/install.sh`. This is how it was
+first installed, deliberately: doing it from a clone rather than by copying a
+working directory is also the test of whether anyone else could stand it up.
+
+If you must push a working copy instead — an unpushed fix, a bisect —
+
     rsync -av --delete --filter=':- .gitignore' --exclude .git \
       ./ atproto-server@192.168.86.250:~/aligned.click/
 
-Or clone it. Either way **nothing untracked may travel**, which is why the
+**Nothing untracked may travel**, which is why the
 excludes are read from `.gitignore` rather than listed here. A hand-written list
 is a list somebody has to remember to update, and the one this replaced had
 already fallen behind twice:
@@ -77,7 +87,24 @@ the repo:
    block lives in `agent/opencode.json` now, so a checkout knows its own models,
    and it reads the key from `GREENPT_API_KEY` in `.env` (item 1). Every user's
    turns bill to that one key, which is why the proxy rate-limits per DID.
-4. **`private/users.json`** — who may log in:
+4. **`private/` — the parts the services read, copied file by file.** Not the
+   directory. On the laptop it also holds the strategizer's material —
+   `strategist/`, `fetches/` with scraped LinkedIn and Instagram data,
+   `creators.json`, `analysis.db`, `external.db` — and none of that belongs on
+   a server that is on the internet. `rsync private/` is one word shorter and
+   sends all of it.
+
+   What the services actually read:
+
+       users.json  waitlist.json  published.json  proxy-sessions.json
+       oauth/client-key.json  oauth/sessions.json  oauth/state.json
+
+   `oauth/client-key.json` is the confidential client's key and logins break
+   without it. Bringing `oauth/sessions.json` and `proxy-sessions.json` is what
+   makes existing logins survive the move; leave them behind and everyone signs
+   in again, which is also a fine choice.
+
+   `users.json` is who may log in:
 
        { "did:plc:…": { "handle": "you.example.com" } }
 
@@ -94,13 +121,44 @@ the repo:
     journalctl -u aligned-proxy -f
     ./server/check-dns.sh
 
-Then open https://aligned.click and log in. The first login from this
-machine is also the first exercise of confidential-client OAuth from here, so
-if something is going to be wrong it will be that.
+Then open https://aligned.click and log in. If you brought `oauth/` across you
+are already logged in; otherwise this is the first exercise of
+confidential-client OAuth from this machine, so if something is going to be
+wrong it will be that.
+
+**Two checks worth making that a green `systemctl status` will not make for
+you**, because both fail with all four services reporting active:
+
+    # the provider key actually resolved, rather than staying a placeholder
+    grep -c '^GREENPT_API_KEY=.\+' .env
+
+    # the thirteen tools registered — ask opencode, do not read the config
+    # that was supposed to produce them
+    curl -su "opencode:$(grep '^OPENCODE_SERVER_PASSWORD=' .env | cut -d= -f2) " \
+      http://127.0.0.1:4096/experimental/tool/ids | tr ',' '\n' | grep -c '"'
+
+The second one matters because the installer fetches whatever opencode is
+current — 1.18.13 at the time of writing — while the wrappers pin
+`@opencode-ai/plugin` to 1.16.2. A version gap there produces an agent with no
+tools and no error message.
 
 ## Updating
 
     git pull && sudo deploy/install.sh
+
+## Moving it from another machine
+
+`install.sh` runs `systemctl enable --now` on all four units, so the tunnel
+starts as part of installing. **Stop the old connector first.** A named
+Cloudflare tunnel accepts several connectors and load-balances between them, so
+two running at once means requests land on whichever host answers — including
+one you have not verified yet.
+
+    # on the machine that was serving
+    pkill -x cloudflared
+
+Then install, then verify, and the rollback while you do is to start the old
+connector again.
 
 ## Removing it
 

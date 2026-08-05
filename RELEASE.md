@@ -83,12 +83,37 @@ one at `git init`; nothing is cherry-picked back. That removes the divergence
 question rather than answering it, which is the only reliable way to handle two
 trees.
 
-- [ ] `git init` the release tree fresh, first commit is v1.
-- [ ] Keep this one **private on GitHub**. Nothing about the re-init makes the
-      old history safe to publish later.
-- [ ] **Say so in this repo** — a line at the top of the README naming the new
-      one and the date it stopped. A reference repo nobody can tell is a
-      reference repo gets edited.
+- [x] **Done 2026-08-05.** The 117 commits of history were pushed to
+      `at_opencode` *first* and verified matching on both ends, then the tree
+      was re-initialised in place — one commit, 85 files, on `main`. In place
+      rather than in a new directory, because `/home/johan/code/aligned.click`
+      is written into `.env`, `private/` and the systemd units.
+
+      Published to both forges from one remote with two push URLs: fetch from
+      `tangled.org` (canonical), push to tangled and to
+      `github.com/circularmachines/aligned.click` (the mirror, which exists so
+      GitHub Actions can deploy the reader to Pages). Note that this
+      arrangement lives in `.git/config` — it is a property of that working
+      copy and does not travel to a clone.
+
+      The tangled remote is a **repo DID**, not `handle/repo`:
+      `git@tangled.org:did:plc:4ubwcjik6lc44ef5hiqknm7r`. The DID resolves to
+      no handle at all, which is why guessing the path was never going to work.
+      Pushing needs an ssh key published to the atproto account that owns the
+      repo — the knot identifies pushes by key, not by password.
+- [x] **The name audit was re-run on the seed tree**, as this section said to.
+      2,242 candidate names harvested from `private/` — every creator, contact
+      and company in the parked material — checked against the tracked tree with
+      `git grep`. Two hits, both Johan's own name in the reader's copyright
+      header. A first attempt reported ~200 hits and was wrong: the regex
+      matched across line breaks and harvested "The", "What", "Login" as names.
+- [ ] **Say so in the old repo** — a line at the top of `at_opencode`'s README
+      naming this one and the date it stopped. It is *that* repo that needs the
+      notice, not this one, and it needs doing there. A reference repo nobody
+      can tell is a reference repo gets edited.
+- [ ] **Confirm `at_opencode` is private**, and stays that way. Nothing about
+      the re-init makes the old history safe to publish later — it holds the
+      creator's name in five commits.
 
 ### Clean the tree — done 2026-08-03
 
@@ -422,6 +447,49 @@ have to ship together:
       (`:4096`) and `serve.py` (`:8777`) stay on `127.0.0.1` — `serve.py`'s own
       docstring says it is not what runs on a real host, and that is still true;
       it stays behind the proxy rather than being replaced.
+
+### It runs on the mini-PC — done 2026-08-05
+
+`atproto-server@192.168.86.250`, four systemd services, all `enabled` so they
+come back after a reboot. Reached by cloning the public repo from tangled,
+writing `.env` by hand and running `sudo deploy/install.sh` once — which was
+also the test of whether anybody *else* could stand this up, and it passed on
+the real path rather than a rehearsal.
+
+- [x] **Verified from outside with the laptop dark.** Every laptop process
+      stopped — proxy, opencode, sidecar, tunnel — and `aligned.click` still
+      answers. Ports 4096, 4098 and 8778 are bound to `127.0.0.1`; the tunnel
+      is the only way in.
+- [x] **Thirteen of thirteen custom tools registered**, which was not a
+      formality: the installer pulled opencode **1.18.13** while the wrappers
+      pin `@opencode-ai/plugin` **1.16.2**. That gap could have produced an
+      agent with no tools and no error, so it is checked by asking opencode
+      what it registered rather than by reading the config that should have
+      produced it.
+- [x] **The three agents resolve correctly there** — `build` and `focused` deny
+      `bash` and `edit`, only `builder` allows them.
+- [x] **The provider key resolves from `.env`.** The one failure that would
+      have looked fine from every angle: all four services green, every turn
+      failing at the provider. On the laptop that key comes from `~/.bashrc`,
+      so it is not in `.env` at all and copying the file across would have
+      omitted it. systemd loads `.env` and never a shell profile.
+- [x] **Logins survived the move.** `private/oauth/` and `proxy-sessions.json`
+      came across, so the same cookie, the same publish state and the same
+      redactions are live on the new machine.
+- [ ] **Send a message and publish a turn from the mini-PC.** The last unproven
+      path: a real model call and a record write from the new host. Everything
+      up to it is verified; this one costs a turn, so it is deliberately left
+      for a human to press.
+- [x] **Rebooted once — a simulated power cut, 2026-08-05.** All four came
+      back on their own. `enabled` means what it says.
+- [ ] **A publish failed once with `UND_ERR_SOCKET: other side closed`** on
+      `createRecord` to the PDS, surfacing as a 502 in the UI. Intermittent
+      rather than broken: two publishes succeeded against one failure, and ten
+      consecutive requests to that PDS from the mini-PC all returned 200.
+      `reconcile` is idempotent, so pressing publish again finishes the job —
+      but the UI says "Could not publish: 502" and does not say *try again*,
+      which is the part worth fixing. (IPv6 is unavailable on that machine and
+      curl falls back to v4 cleanly; noted in case it turns out to be related.)
 ### Moving DNS off Namecheap — required, and the riskiest step in the release
 
 Cloudflare Tunnel can only attach a hostname to a zone Cloudflare hosts:
@@ -694,9 +762,15 @@ a different day.
 
 Two things do carry over, and they are small:
 
-- [ ] **Nothing copies the mini-PC's databases onto it.** No convenience symlink,
-      no "just for testing" export. The moment one lands there this section
-      stops being empty and `purge.py` becomes overdue again.
+- [x] **Nothing copies the strategizer's databases onto it** (held, 2026-08-05).
+      When `private/` was moved to the mini-PC it was copied *file by file* —
+      `users.json`, `waitlist.json`, `published.json`, `proxy-sessions.json` and
+      `oauth/` — and not as a directory. `strategist/`, `fetches/`
+      (the scraped LinkedIn and Instagram material), `creators.json`,
+      `analysis.db`, `external.db` and `NOTES.md` stayed on the laptop.
+      `rsync private/` would have been one word shorter and would have put all
+      of it on the server. The moment any of it lands there this section stops
+      being empty and `purge.py` becomes overdue again.
 - [ ] **Back up the user record.** It is OAuth tokens and DIDs for real people,
       on one PC in a house. Losing it means everyone re-enrols; leaking it is
       worse.
