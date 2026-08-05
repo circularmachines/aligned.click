@@ -1,0 +1,39 @@
+# GitHub Pages can only deploy a branch from the repo root or /docs, and the
+# reader is one site among several things in this repo — so it deploys through
+# Actions instead, which can upload any path.
+#
+# `reader/` is that path, and it is why shared/ lives inside it: whatever is
+# uploaded here is the whole of what read.aligned.click can serve, so anything
+# both sites use has to be in the tree. The proxy serves the same files at the
+# same URLs for the chat side.
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      # No build step: the site is the source. reader/CNAME rides along in the
+      # artifact, which is where GitHub Pages looks for the custom domain.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: reader
+      - id: deploy
+        uses: actions/deploy-pages@v4

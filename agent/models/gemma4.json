@@ -1,0 +1,5 @@
+{
+  "name": "Gemma 4",
+  "tools": "none",
+  "note": "No tool calling. Fine for plain chat, useless for an agent that has to call anything."
+}

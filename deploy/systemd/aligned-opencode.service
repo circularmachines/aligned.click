@@ -1,0 +1,29 @@
+[Unit]
+# The agent itself. Runs from agent/, which is everything it is configured by:
+# opencode.json, the instructions it loads, the models it may run and the
+# .opencode/tools/ wrappers. private/ is outside that directory rather than in
+# the middle of it.
+Description=aligned.click opencode server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%SERVICE_USER%
+WorkingDirectory=%REPO%/agent
+EnvironmentFile=-%REPO%/.env
+# Binds loopback and nothing else. It is reached only through the proxy, which
+# is the only thing that knows who anyone is — opencode's sessions are global to
+# the process, so anything that can talk to this port can read every user's
+# conversation. OPENCODE_SERVER_PASSWORD (from .env) is the second lock.
+ExecStart=%OPENCODE% serve --port 4096 --hostname 127.0.0.1
+Restart=always
+RestartSec=3
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target

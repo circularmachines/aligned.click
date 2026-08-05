@@ -1,0 +1,612 @@
+<!doctype html>
+<!-- aligned.click — conversations published to atproto.
+     Copyright (C) 2026 Johan Lagerlöf.
+     Licensed under the GNU AGPL v3 or later. See LICENSE. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>aligned.click</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6f5e">
+<!-- Served by GitHub Pages, which sets no headers of its own, so the policy
+     rides in the document. `script-src 'self'` is the point of it: every
+     library this page uses is in shared/, so nothing may be fetched from a
+     CDN even if a tag for one reappears. `connect-src https:` stays open
+     because reading atproto means talking to whichever PDS hosts the author. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src https:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+<script type="module" src="shared/atproto-wc.js"></script>
+<script src="shared/marked.min.js"></script>
+<script src="shared/purify.min.js"></script>
+<script src="shared/redact.js"></script>
+<link rel="stylesheet" href="shared/theme.css">
+<style>
+  /* The whole brand, in one place. Everything else is neutral by design: a site
+     about paying attention on purpose should not be competing for it, so there
+     is one colour, used for the things you can act on and nothing else.
+
+     Two tokens rather than one, because a colour cannot do both jobs. --accent
+     is a *mark* — text, borders, outlines — and has to stand out against the
+     page, so it lightens in dark mode. --accent-fill is a *surface* carrying
+     white text, so it must stay dark in both. Collapsing them gave white on
+     #4e9d85 at 3.24:1, which fails AA for body text; split, the fill runs 5.9:1
+     and the mark 5.5:1 against its own background.
+
+     --atproto-accent hands the mark to the embedded post and profile cards so
+     they stop arriving in Bluesky blue. */
+  /* Phones. The bubble asymmetry that reads as conversation on a wide screen
+     just reads as a narrow column on a 390px one, and a card that wants 480px
+     has to be allowed to size to the row instead — its `max-width: 100%`
+     resolves against a parent sized by its own content, which is no constraint
+     at all. */
+  @media (max-width: 600px) {
+    #app { padding: 12px 10px; }
+    .msg { max-width: 100%; width: 100%; }
+    .msg.user .bubble { max-width: 88%; }
+    .msg.assistant .bubble { width: 100%; }
+    .cards atproto-post, .cards atproto-profile { width: 100%; }
+    header h1 { font-size: 16px; }
+    /* Reaching a permalink with a thumb. */
+    .label a, .quote { display: inline-block; padding: 8px 4px; min-height: 32px; }
+    .sessions a { padding: 12px 10px; }
+  }
+  /* Nothing here is hover-only on a touch screen. */
+  @media (hover: none) {
+    .sessions a:hover { background: none; }
+  }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  #app { max-width: 760px; margin: 0 auto; padding: 16px; }
+  header { border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 16px; }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: -0.01em; }
+  header h1 a { color: inherit; text-decoration: none; }
+  header h1 .dot { color: var(--accent); }
+  header .tagline { font-size: 13px; color: var(--fg); margin: 2px 0 0; }
+  header .meta { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  header .meta a { color: inherit; }
+  footer {
+    margin-top: 40px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  footer a { color: inherit; }
+  .sessions { list-style: none; margin: 0; padding: 0; }
+  .sessions li { border-bottom: 1px solid var(--border); }
+  .sessions a {
+    display: block;
+    padding: 12px 4px;
+    color: inherit;
+    text-decoration: none;
+  }
+  .sessions a:hover { background: var(--bubble-assistant); }
+  .sessions .title { font-weight: 600; font-size: 15px; }
+  .sessions .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .msg { display: flex; flex-direction: column; margin-bottom: 12px; max-width: 82%; }
+  .msg.user { align-self: flex-end; align-items: flex-end; margin-left: auto; }
+  .msg.assistant { align-items: flex-start; }
+  .bubble {
+    padding: 10px 13px;
+    border-radius: 14px;
+    font-size: 14px;
+    line-height: 1.45;
+    word-wrap: break-word;
+  }
+  .msg.user .bubble {
+    background: var(--bubble-user);
+    color: var(--bubble-user-fg);
+    border-bottom-right-radius: 4px;
+    white-space: pre-wrap;
+  }
+  .msg.assistant .bubble {
+    background: var(--bubble-assistant);
+    color: var(--bubble-assistant-fg);
+    border-bottom-left-radius: 4px;
+  }
+  .bubble > :first-child { margin-top: 0; }
+  .bubble > :last-child { margin-bottom: 0; }
+  .bubble p, .bubble ul, .bubble ol { margin: 0 0 8px; }
+  .bubble ul, .bubble ol { padding-left: 20px; }
+  .bubble code { background: rgba(127,127,127,0.2); border-radius: 3px; padding: 0 3px; font-size: 0.9em; }
+  .bubble pre { background: rgba(127,127,127,0.15); border-radius: 8px; padding: 8px 10px; overflow-x: auto; }
+  .bubble pre code { background: none; padding: 0; }
+  /* The tool calls. Published on purpose — a conversation with an agent is
+     mostly interesting for how it got there — so they are shown by default
+     rather than folded away behind a toggle. */
+  .steps {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: var(--muted);
+    background: rgba(127,127,127,0.1);
+    border-radius: 8px;
+    padding: 6px 8px;
+    margin-bottom: 8px;
+    white-space: pre-wrap;
+  }
+  .steps .failed { color: #dc2626; }
+  .label { font-size: 11px; color: var(--muted); margin: 2px 6px; }
+  .cards { margin: 8px 0 0; }
+  .cards atproto-post, .cards atproto-profile { display: block; width: 480px; max-width: 100%; margin: 6px 0; }
+  /* Every turn is individually addressable — each one is its own record, so a
+     link to a single message is a link to a real thing, not to a scroll
+     position in a page.
+
+     Marked with a class rather than :target, which Chrome does not re-evaluate
+     for an element that appears after the fragment was resolved — and here
+     every element appears after, because the page has to fetch the records
+     first. */
+  .label a { color: inherit; text-decoration: none; }
+  .label a:hover { text-decoration: underline; }
+  /* A turn that happened, whose words were not published. Every turn gets a
+     record when it happens, so a partly-published conversation has visible
+     holes rather than invisible ones — without this, an answer to a question
+     that was held back would read as an answer to whatever came before it.
+     Deliberately not a bubble: there is nothing in it to read. */
+  /* What the author did, in one line. These turns carry a fuller message —
+     the post's index and its text — because that is what the agent was told,
+     and the card below repeats the rest. Recognisable without a marker: a user
+     turn that produced a post is the button's message, and nothing a person
+     writes produces a post. */
+  .did {
+    align-self: center;
+    font-size: 12px;
+    font-style: italic;
+    color: var(--muted);
+    margin: 4px 0 2px;
+  }
+  .msg.withheld .bubble {
+    background: none;
+    border: 1px dashed var(--border);
+    color: var(--muted);
+    font-size: 13px;
+    font-style: italic;
+    padding: 7px 12px;
+  }
+  .msg.focused .bubble {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .discussion {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .discussion h3 { font-size: 14px; margin: 0 0 4px; }
+  .quote {
+    border: none;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 11px;
+    padding: 0 4px;
+    cursor: pointer;
+  }
+  .quote:hover { color: var(--accent); text-decoration: underline; }
+  .reply-on, .share-on {
+    display: inline-block;
+    margin: 10px 8px 14px 0;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    text-decoration: none;
+  }
+  .reply-on { background: var(--accent-fill); color: #fff; }
+  /* Outlined, because sharing and replying are different acts and the one that
+     joins the conversation is the one to lead with. */
+  .share-on {
+    border: 1px solid var(--accent);
+    color: var(--accent);
+  }
+  .note { color: var(--muted); font-size: 13px; }
+  .error { color: #dc2626; font-size: 13px; }
+  a.back { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1><a href="./chat.html">aligned<span class="dot">.</span>click</a></h1>
+    <p class="tagline">Conversations with an agent, published where nobody owns them.</p>
+    <div class="meta" id="meta"></div>
+  </header>
+  <div id="out" class="note">Loading…</div>
+  <footer>
+    Every conversation here is a set of records in its author's own atproto
+    repo, read live by this page. Nothing is stored here, and a post its author
+    deletes stops appearing. The record schemas are
+    <code>click.aligned.chat.session</code> and <code>click.aligned.chat.message</code>.
+  </footer>
+</div>
+<script>
+  // Renders conversations straight out of an atproto repo. There is no server
+  // behind this page and no database: it resolves a handle to a DID, asks the
+  // PLC directory which PDS holds that repo, and lists the records. Both hops
+  // are public, unauthenticated and CORS-open, which is the whole argument for
+  // publishing to atproto rather than to a site — the data outlives whatever
+  // drew it, and anyone can write a different viewer.
+  const PARAMS = new URLSearchParams(location.search);
+  // No default author. A PDS is a repo, not a query engine — `listRecords`
+  // always names one — so there is no call meaning "every conversation on the
+  // network", and a reader can only read repos it already knows about.
+  // authors.json is that list: curated on purpose rather than pretending to be
+  // global, and the honest shape for something invite-sized. When it outgrows a
+  // file, that is the moment an index earns itself.
+  const HANDLE = PARAMS.get("handle");
+  const SESSION = PARAMS.get("session");
+  const AUTHORS = "authors.json";
+
+  const SESSION_NSID = "click.aligned.chat.session";
+  const MESSAGE_NSID = "click.aligned.chat.message";
+
+  const out = document.getElementById("out");
+  const meta = document.getElementById("meta");
+
+  const esc = (s) => { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; };
+
+  async function json(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${res.status} ${url}`);
+    return res.json();
+  }
+
+  // handle -> did -> the PDS actually holding the repo. The appview resolves
+  // the handle; the DID document says where the data lives, which is the part
+  // that makes this work for accounts hosted anywhere, not just on bsky.social.
+  async function locate(handle) {
+    const did = handle.startsWith("did:")
+      ? handle
+      : (await json(`https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(handle)}`)).did;
+    const doc = await json(`https://plc.directory/${did}`);
+    const pds = (doc.service || []).find((s) => s.type === "AtprotoPersonalDataServer");
+    if (!pds) throw new Error(`no PDS in the DID document for ${did}`);
+    return { did, pds: pds.serviceEndpoint };
+  }
+
+  // listRecords caps at 100 and pages with a cursor. Fetching a whole
+  // collection to show one conversation is honest about what a PDS is: a repo,
+  // not a query engine. Filtering by a field is what an appview would do, and
+  // is the point at which one becomes worth building.
+  async function listAll(pds, did, collection) {
+    const items = [];
+    let cursor = "";
+    do {
+      const url = `${pds}/xrpc/com.atproto.repo.listRecords?repo=${did}`
+        + `&collection=${collection}&limit=100${cursor ? `&cursor=${cursor}` : ""}`;
+      const page = await json(url);
+      items.push(...(page.records || []));
+      cursor = page.cursor || "";
+    } while (cursor);
+    return items;
+  }
+
+  async function loadRepo(handle) {
+    const { did, pds } = await locate(handle);
+    const [sessions, messages] = await Promise.all([
+      listAll(pds, did, SESSION_NSID),
+      listAll(pds, did, MESSAGE_NSID),
+    ]);
+    // TID record keys sort lexicographically by creation time, so the reading
+    // order is free — no sequence number in the record, nothing to keep
+    // consistent, and a turn published late still lands in the right place.
+    messages.sort((a, b) => rkeyOf(a.uri).localeCompare(rkeyOf(b.uri)));
+    return { handle, did, pds, sessions, messages };
+  }
+
+  const rkeyOf = (uri) => uri.split("/").pop();
+
+  // intent/compose prefills text and nothing else, so what it opens is always a
+  // new post — which is exactly right for sharing and exactly wrong for
+  // replying. Sharing reaches the sharer's followers; it does not appear in the
+  // thread below, which is built from replies. The two buttons are kept
+  // visually distinct for that reason.
+  const shareHref = (url, title) =>
+    "https://bsky.app/intent/compose?text="
+    + encodeURIComponent(title ? `${title}\n\n${url}` : url);
+
+  function shareLink(url, title, label = "Share on Bluesky") {
+    const a = document.createElement("a");
+    a.className = "share-on";
+    a.href = shareHref(url, title);
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = label;
+    return a;
+  }
+
+  const permalink = (key) => {
+    const url = new URL(location.href);
+    url.hash = key ? `m-${key}` : "";
+    return url.toString();
+  };
+  const when = (iso) => (iso || "").replace("T", " ").replace("Z", "").slice(0, 16);
+
+  // A session record need not carry a title, and mostly should not: a
+  // conversation published as it happened has a first line already, and
+  // inventing a heading for it is editorialising something that was supposed to
+  // be a record. So the list labels each one with how it opened. Derived at
+  // read time, never stored — nothing here adds words the conversation lacked.
+  function opener(messages, key) {
+    const first = messages.find((m) => rkeyOf(m.value.session || "") === key
+                                    && m.value.role === "user" && m.value.text);
+    const line = (first?.value.text || "").split("\n")[0].trim();
+    return line.length > 96 ? line.slice(0, 95) + "…" : line;
+  }
+
+  function renderSessions(repos) {
+    const rows = [];
+    for (const repo of repos) {
+      const counts = {};
+      for (const m of repo.messages) {
+        const key = rkeyOf(m.value.session || "");
+        counts[key] = (counts[key] || 0) + 1;
+      }
+      for (const s of repo.sessions) {
+        rows.push({ repo, session: s, key: rkeyOf(s.uri), turns: counts[rkeyOf(s.uri)] || 0 });
+      }
+    }
+    if (!rows.length) {
+      out.innerHTML = `<p class="note">No <code>${SESSION_NSID}</code> records found yet.</p>`;
+      return;
+    }
+    // Merged by date across everyone, not grouped by author: what makes two
+    // conversations worth putting side by side is when they happened, not who
+    // was having them.
+    rows.sort((a, b) => (b.session.value.createdAt || "").localeCompare(a.session.value.createdAt || ""));
+
+    const list = document.createElement("ul");
+    list.className = "sessions";
+    for (const row of rows) {
+      const li = document.createElement("li");
+      li.innerHTML = `<a href="?handle=${encodeURIComponent(row.repo.handle)}&session=${row.key}">
+        <div class="title">${esc(row.session.value.title
+            || opener(row.repo.messages, row.key) || "(no opening message)")}</div>
+        <div class="sub">${esc(row.repo.handle)} · ${when(row.session.value.createdAt)} · ${row.turns} turns</div></a>`;
+      list.appendChild(li);
+    }
+    out.replaceChildren(list);
+  }
+
+  function renderSteps(steps) {
+    const box = document.createElement("div");
+    box.className = "steps";
+    box.innerHTML = steps.map((s) => {
+      const mark = s.failed ? `<span class="failed">✗</span>` : "✓";
+      return `${mark} ${esc(s.tool)}${s.summary ? `: ${esc(s.summary)}` : ""}`;
+    }).join("\n");
+    return box;
+  }
+
+  // Referenced records are drawn live from the network, never from anything
+  // stored here — which is why a post its author has deleted simply stops
+  // appearing. That is the correct behaviour: the record says which post was
+  // discussed, not what it said.
+  function renderCards(value) {
+    const box = document.createElement("div");
+    box.className = "cards";
+    for (const ref of value.refs || []) {
+      const el = document.createElement("atproto-post");
+      el.setAttribute("src", ref.uri);
+      box.appendChild(el);
+    }
+    for (const did of value.mentions || []) {
+      const el = document.createElement("atproto-profile");
+      el.setAttribute("src", did);
+      box.appendChild(el);
+    }
+    return box.firstChild ? box : null;
+  }
+
+  function renderMessages(session, messages) {
+    const frag = document.createDocumentFragment();
+    const head = document.createElement("div");
+    // No heading and no blurb unless the record actually carries them. An
+    // untitled conversation opens with what was said, which is the whole point
+    // of publishing it as it happened.
+    head.innerHTML = `<a class="back" href="?handle=${encodeURIComponent(HANDLE)}">← all conversations</a>
+      ${session?.value.title ? `<h2 style="font-size:18px;margin:8px 0 4px">${esc(session.value.title)}</h2>` : ""}
+      ${session?.value.description ? `<p class="note">${esc(session.value.description)}</p>` : ""}`;
+    frag.appendChild(head);
+
+    // Sharing works with or without a discussion thread: there is always
+    // something to point at, even when nobody has said anything about it yet.
+    const top = document.createElement("div");
+    top.appendChild(shareLink(permalink(null), session?.value.title || ""));
+    frag.appendChild(top);
+
+  // The line under a turn: when it was, what wrote it, and the two ways to
+  // point at it. Shared by published and withheld turns — a withheld turn is
+  // still a turn, still has a time, and is still worth linking to.
+  function stamp(v, key, uri, withheld) {
+    const label = document.createElement("div");
+    label.className = "label";
+    const link = document.createElement("a");
+    link.href = `#m-${key}`;
+    link.textContent = [when(v.createdAt), v.model].filter(Boolean).join(" · ");
+    // The at:// URI on hover: the durable name for this turn, which outlives
+    // this page and any URL it happens to be served from.
+    link.title = uri;
+    label.appendChild(link);
+    // Nothing to share when there is nothing there. A withheld turn keeps its
+    // time and its anchor — it is still a turn and still worth pointing at —
+    // but "share" would offer somebody an absence, and "copy link" a link to
+    // one. The time stays a link, so a permalink is a right-click away for
+    // anyone who genuinely wants to cite the gap.
+    if (withheld) return label;
+    // Copies the turn's permalink so it can be pasted into a reply. Not a
+    // "quote post" button: a quote is a new post, and the thread below is
+    // built from actual replies, so a quote would never appear in the
+    // conversation it was responding to.
+    const share = document.createElement("a");
+    share.className = "quote";
+    share.href = shareHref(permalink(key));
+    share.target = "_blank";
+    share.rel = "noopener";
+    share.textContent = "share";
+    label.appendChild(share);
+    const quote = document.createElement("button");
+    quote.className = "quote";
+    quote.type = "button";
+    quote.textContent = "copy link";
+    quote.addEventListener("click", async () => {
+      const url = new URL(location.href);
+      url.hash = `m-${key}`;
+      try {
+        await navigator.clipboard.writeText(url.toString());
+        quote.textContent = "copied";
+      } catch {
+        quote.textContent = url.toString();  // no clipboard: show it to select
+      }
+      setTimeout(() => { quote.textContent = "copy link"; }, 2500);
+    });
+    label.appendChild(quote);
+    return label;
+  }
+
+    for (const m of messages) {
+      const v = m.value;
+      const key = rkeyOf(m.uri);
+      const withheld = v.withheld === true;
+      // A user turn with a post attached is a record of an action, not
+      // something typed. Draw the action and the post, not the instructions.
+      if (!withheld && v.role === "user" && (v.refs || []).length) {
+        const did = document.createElement("div");
+        const verb = /^I (posted|replied|quoted)/.exec(v.text || "");
+        did.className = "did";
+        did.textContent = `they ${verb ? verb[1] : "posted"}`;
+        frag.appendChild(did);
+        const cardsOnly = document.createElement("div");
+        cardsOnly.className = "msg assistant";
+        const cb = document.createElement("div");
+        cb.className = "bubble";
+        const c = renderCards(v);
+        if (c) cb.appendChild(c);
+        cardsOnly.appendChild(cb);
+        cardsOnly.id = `m-${key}`;
+        cardsOnly.appendChild(stamp(v, key, m.uri));
+        frag.appendChild(cardsOnly);
+        continue;
+      }
+      const wrap = document.createElement("div");
+      wrap.className = `msg ${v.role === "user" ? "user" : "assistant"}${withheld ? " withheld" : ""}`;
+      wrap.id = `m-${key}`;
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+
+      // Say that something is missing, and no more. The record carries the role
+      // and the time and nothing else, so this cannot say what was withheld —
+      // and should not imply it could.
+      if (withheld) {
+        bubble.textContent = v.role === "user"
+          ? "message not published"
+          : "reply not published";
+        wrap.appendChild(bubble);
+        wrap.appendChild(stamp(v, key, m.uri, true));
+        frag.appendChild(wrap);
+        continue;
+      }
+
+      if (v.role === "assistant" && (v.steps || []).length) bubble.appendChild(renderSteps(v.steps));
+      const body = document.createElement("div");
+      // The user's words stay plain text; the assistant's are markdown, as they
+      // were written. Sanitised either way — this is somebody else's repo as far
+      // as this page knows, and a viewer that trusts its input is an XSS hole.
+      if (v.role === "assistant") {
+        body.innerHTML = DOMPurify.sanitize(marked.parse(v.text || ""));
+      } else {
+        body.textContent = v.text || "";
+        body.style.whiteSpace = "pre-wrap";
+      }
+      paintRedactions(body);
+      bubble.appendChild(body);
+      const cards = renderCards(v);
+      if (cards) bubble.appendChild(cards);
+      wrap.appendChild(bubble);
+
+      wrap.appendChild(stamp(v, key, m.uri));
+      frag.appendChild(wrap);
+    }
+    if (session?.value.discussion) {
+      const box = document.createElement("div");
+      box.className = "discussion";
+      // bsky.app/profile/<did>/post/<rkey> is the human-facing form of an
+      // at:// URI. Sent there rather than to an intent link because a reply has
+      // to be a reply: intent/compose only prefills text and would produce a
+      // standalone post, which the thread below — built from reply backlinks —
+      // would never show.
+      const [, , did, , rkey] = session.value.discussion.split("/");
+      box.innerHTML = `<h3>Discussion</h3>
+        <p class="note">Replies live on Bluesky, in the repo of whoever wrote
+        them. Nothing here hosts them: this page asks a backlink index what
+        replied, and draws it. Use <b>copy link</b> on any turn to quote it.</p>
+        <a class="reply-on" href="https://bsky.app/profile/${encodeURIComponent(did)}/post/${encodeURIComponent(rkey)}"
+           target="_blank" rel="noopener">Reply on Bluesky</a>`;
+      box.appendChild(shareLink(permalink(null), session.value.title || "",
+                                "Share instead"));
+      const thread = document.createElement("atproto-comments");
+      thread.setAttribute("src", session.value.discussion);
+      box.appendChild(thread);
+      frag.appendChild(box);
+    }
+    out.replaceChildren(frag);
+    focusLinked();
+  }
+
+  // Honour a deep link, and keep honouring it while the page is still growing.
+  // Post and profile cards fetch themselves, so a turn scrolled into view now
+  // is somewhere else a second later once the card above it has a picture in
+  // it. Re-scrolling on every size change for a few seconds costs nothing and
+  // is the difference between the link working and nearly working.
+  function focusLinked() {
+    const id = location.hash.slice(1);
+    for (const el of document.querySelectorAll(".msg.focused")) el.classList.remove("focused");
+    if (!id) return;
+    const target = document.getElementById(id);
+    if (!target) return;
+    target.classList.add("focused");
+    target.scrollIntoView({ block: "center" });
+
+    const settle = new ResizeObserver(() => target.scrollIntoView({ block: "center" }));
+    settle.observe(document.getElementById("app"));
+    setTimeout(() => settle.disconnect(), 4000);
+  }
+
+  addEventListener("hashchange", focusLinked);
+
+  (async () => {
+    try {
+      if (HANDLE) {
+        const repo = await loadRepo(HANDLE);
+        meta.innerHTML = `${esc(repo.handle)} · <code>${esc(repo.did)}</code> · `
+          + `<a href="${esc(repo.pds)}" rel="noopener">${esc(new URL(repo.pds).host)}</a>`;
+        if (SESSION) {
+          const uri = `at://${repo.did}/${SESSION_NSID}/${SESSION}`;
+          renderMessages(repo.sessions.find((s) => s.uri === uri),
+                         repo.messages.filter((m) => m.value.session === uri));
+        } else {
+          renderSessions([repo]);
+        }
+        return;
+      }
+
+      const authors = await json(AUTHORS);
+      // allSettled, not all: one author who has moved PDS, deleted their
+      // account or never published anything must not blank the page for
+      // everyone else. A curated list ages, and it should age quietly.
+      const loaded = await Promise.allSettled(authors.map(loadRepo));
+      const repos = loaded.filter((r) => r.status === "fulfilled").map((r) => r.value);
+      const missed = loaded.length - repos.length;
+      meta.innerHTML = `${repos.length} author${repos.length === 1 ? "" : "s"}`
+        + (missed ? ` · ${missed} unreachable` : "");
+      renderSessions(repos);
+    } catch (err) {
+      out.className = "error";
+      out.textContent = `Could not read: ${err.message}`;
+    }
+  })();
+</script>
+</body>
+</html>

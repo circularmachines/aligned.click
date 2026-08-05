@@ -1,0 +1,61 @@
+/* The look, once, for both halves of aligned.click.
+ *
+ * The chat at aligned.click and the reader at read.aligned.click are served by
+ * different things — one by the proxy, one by GitHub Pages — and had carried
+ * byte-identical copies of this block. Two copies of a colour is how two sites
+ * stop looking like one thing.
+ *
+ * Two accents rather than one, because a colour that works as a mark on the
+ * background does not have enough contrast under white text: --accent is for
+ * text and borders, --accent-fill for surfaces that carry white.
+ *
+ * --atproto-accent hands the mark to the embedded post and profile cards so
+ * they stop arriving in Bluesky blue.
+ */
+:root {
+  color-scheme: light dark;
+  --accent: #2f6f5e;
+  --accent-fill: #2f6f5e;
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --bubble-user: var(--accent-fill);
+  --bubble-user-fg: #ffffff;
+  --bubble-assistant: #f3f4f6;
+  --bubble-assistant-fg: #1a1a1a;
+  --atproto-accent: var(--accent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: #4e9d85;
+    --accent-fill: #2a6353;
+    --bg: #17181c;
+    --fg: #e8e8e8;
+    --muted: #9aa0a6;
+    --border: #2c2d33;
+    --bubble-assistant: #26272c;
+    --bubble-assistant-fg: #e8e8e8;
+  }
+}
+
+* { box-sizing: border-box; }
+
+/* A redacted span, in the colour of the words it replaces. The block
+   characters are what the record says and they set the width; the bar is
+   painted as a background so it reads as one solid mark rather than a row of
+   glyphs with gaps between them.
+
+   The glyphs are hidden with text-fill rather than `color: transparent`:
+   `color` is what `currentColor` reads, so setting it transparent makes the
+   background transparent too and the bar comes out as a hole. Where text-fill
+   is not supported the blocks show in the text colour over a background of the
+   same colour, which is the same bar. */
+.redacted {
+  background: currentColor;
+  -webkit-text-fill-color: transparent;
+  border-radius: 2px;
+  padding: 0 2px;
+  user-select: none;
+}

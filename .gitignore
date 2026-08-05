@@ -1,0 +1,24 @@
+# Bluesky app-password credentials — never commit
+.env
+
+# Private projects — the public agent is denied read access here, and these
+# stay untracked so private work never lands in the repo.
+private/
+
+# Runtime state written by the post tools (index -> at:// URI mapping)
+tools/.post_index.jsonl
+
+# Shared case file the agent + background workers append findings to
+NOTES.md
+
+# Cached Bluesky session tokens — never commit. The glob matters: a second
+# account (publishing) caches to .session-publish.json, and an app password
+# grants full write access to whatever it belongs to.
+tools/.session*.json
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# The OAuth sidecar's dependencies — installed with npm, never committed
+oauth/node_modules/

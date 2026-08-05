@@ -1,0 +1,10 @@
+{
+  "name": "DeepSeek V4 Flash",
+  "tools": "openai",
+  "limit": {
+    "context": 128000,
+    "output": 32768
+  },
+  "note": "Tool calls work. Two sessions run from automation on 2026-08-04 looped badly \u2014 one reached ~100 assistant turns and 1.35M input tokens showing a single post \u2014 but Johan does not see that in normal use, so treat those as a symptom of how they were driven rather than a property of the model. Worth knowing it can loop; not a reason to avoid it.",
+  "verified": "2026-08-04"
+}

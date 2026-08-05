@@ -1,0 +1,30 @@
+[Unit]
+# The tunnel, and the ordering here is a safety property rather than a
+# preference. `Requires=aligned-proxy.service` means this cannot be what is
+# running if the proxy is not: without it, a tunnel that came up first — or
+# stayed up after the proxy crashed — would be a public door with nothing
+# behind it checking who is asking.
+Description=aligned.click Cloudflare tunnel
+After=network-online.target aligned-proxy.service
+Requires=aligned-proxy.service
+BindsTo=aligned-proxy.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%SERVICE_USER%
+WorkingDirectory=%REPO%
+# cloudflared finds its credentials in ~/.cloudflared, from the tunnel name and
+# cert.pem. Those two files are account credentials and are copied to this
+# machine by hand — they are not in the repo and must not be.
+ExecStart=%CLOUDFLARED% tunnel --config %REPO%/server/tunnel.yml run
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,107 @@
+{
+  "lexicon": 1,
+  "id": "click.aligned.chat.message",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "One turn of a published conversation with an agent. Records are created as the conversation happens and never rewritten, so the record key's TID ordering is the reading order.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "session",
+          "role",
+          "text",
+          "createdAt"
+        ],
+        "properties": {
+          "session": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "The click.aligned.chat.session this turn belongs to. A plain at-uri, deliberately not a strongRef: the session may be retitled later, and a strongRef would pin a CID that then no longer exists."
+          },
+          "role": {
+            "type": "string",
+            "description": "Who is speaking.",
+            "knownValues": [
+              "user",
+              "assistant"
+            ]
+          },
+          "withheld": {
+            "type": "boolean",
+            "description": "This turn happened and its content was not published. Every turn gets a record when it happens, so a conversation published in part has visible holes rather than invisible ones \u2014 an answer to a question that was held back would otherwise read as an answer to whatever came before it. Stated rather than inferred from an empty `text`, so a reader never has to guess whether a turn was withheld or simply empty. Absent means published."
+          },
+          "text": {
+            "type": "string",
+            "description": "What was said. The assistant's own words, so they are stored rather than referenced \u2014 there is nowhere else they exist. Runs of \u2588 are redactions: spans the author covered rather than withhold the whole turn over, of a fixed width so the bar does not say how long the words were. The covered words were never published and are not recoverable from this record; a viewer that does nothing special shows the bars as text, which is the honest reading.",
+            "maxLength": 60000,
+            "maxGraphemes": 15000
+          },
+          "model": {
+            "type": "string",
+            "description": "The model that produced an assistant turn, e.g. 'greenpt/minimax-m2.5'. Present on assistant turns so a reader never has to guess whether they are reading a person or a machine, and can tell which machine."
+          },
+          "steps": {
+            "type": "array",
+            "description": "The tools the agent called on this turn, in order. Published because the point of a conversation like this is usually *how* the answer was reached; a reply with the working removed is the least interesting part of it.",
+            "maxLength": 100,
+            "items": {
+              "type": "ref",
+              "ref": "#step"
+            }
+          },
+          "refs": {
+            "type": "array",
+            "description": "Records this turn is about, as strong references. Pointed at, never copied: a copy would survive the author deleting the original, and it should not. A strongRef pins the CID, so a reader gets the version that was actually discussed and can tell when it has since changed \u2014 which is what you want for a post, whose text is the thing.",
+            "maxLength": 50,
+            "items": {
+              "type": "ref",
+              "ref": "com.atproto.repo.strongRef"
+            }
+          },
+          "mentions": {
+            "type": "array",
+            "description": "atproto accounts this turn is about, as DIDs. Deliberately not strongRefs to their profile records: a person is not a version of their bio, and pinning one would make a turn about someone go stale the next time they change their avatar. A DID is the identity, and it is the identity that was being discussed.",
+            "maxLength": 50,
+            "items": {
+              "type": "string",
+              "format": "did"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "When the turn happened."
+          }
+        },
+        "description": "One turn of a conversation, in the repo of the person who had it. Created when the turn happens, with its content only if they chose to publish it \u2014 so what is public is the shape of the conversation always, and the words by decision."
+      }
+    },
+    "step": {
+      "type": "object",
+      "description": "One tool call. The name and a short summary of what it was for \u2014 never the output, which is often large, often private, and reproducible by anyone holding the same tools.",
+      "required": [
+        "tool"
+      ],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "description": "Tool name as the agent called it, e.g. 'search-posts'.",
+          "maxLength": 320,
+          "maxGraphemes": 64
+        },
+        "summary": {
+          "type": "string",
+          "description": "One line on what it was called for or what came back.",
+          "maxLength": 1000,
+          "maxGraphemes": 250
+        },
+        "failed": {
+          "type": "boolean",
+          "description": "Whether the call errored. Published rather than hidden: a workflow that shows only the calls that worked is a misleading picture of working with an agent."
+        }
+      }
+    }
+  }
+}

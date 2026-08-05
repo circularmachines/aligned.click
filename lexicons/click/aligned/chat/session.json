@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "click.aligned.chat.session",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A published conversation with an agent. The container only: the turns are separate click.aligned.chat.message records pointing back at this one, so a session grows without ever being rewritten.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["createdAt"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "What the conversation was about. May be written after the fact, which is why messages link here by at-uri rather than by strongRef — editing this must not dangle them.",
+            "maxLength": 640,
+            "maxGraphemes": 128
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional framing: what was being explored, and why.",
+            "maxLength": 12000,
+            "maxGraphemes": 3000
+          },
+          "discussion": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "A Bluesky post where this conversation is being discussed. Records like these are durable but silent — nothing on the network is notified when one is written — so conversation about them has to happen where conversation already happens. Naming the post rather than embedding the replies keeps the two separate: the record is the artifact, the thread is what people said about it, and either can be deleted without taking the other with it."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "When the conversation started, not when it was published."
+          }
+        }
+      }
+    }
+  }
+}

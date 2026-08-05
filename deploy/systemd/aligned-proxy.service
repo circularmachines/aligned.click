@@ -1,0 +1,27 @@
+[Unit]
+# The auth proxy. Requires= rather than After= on both: it is the only thing
+# that authenticates, and a proxy running without the sidecar or opencode is not
+# degraded, it is a login page in front of nothing.
+Description=aligned.click auth proxy
+After=network-online.target aligned-oauth.service aligned-opencode.service
+Requires=aligned-oauth.service aligned-opencode.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%SERVICE_USER%
+WorkingDirectory=%REPO%
+EnvironmentFile=-%REPO%/.env
+ExecStart=%PYTHON% %REPO%/server/proxy.py
+Restart=always
+RestartSec=3
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target

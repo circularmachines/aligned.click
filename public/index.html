@@ -1,0 +1,2804 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>aligned.click</title>
+<!-- viewport-fit=cover so the composer can sit against the bottom of a phone
+     and still clear the home indicator, via env(safe-area-inset-bottom). -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6f5e">
+<script type="module" src="/shared/atproto-wc.js"></script>
+<script src="/shared/marked.min.js"></script>
+<script src="/shared/purify.min.js"></script>
+<script src="/shared/redact.js"></script>
+<link rel="stylesheet" href="/shared/theme.css">
+<style>
+  html, body {
+    height: 100%;
+    height: 100dvh;   /* the URL bar resizes the viewport; 100% does not follow */
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    height: 100dvh;
+    max-width: 760px;
+    margin: 0 auto;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  header h1 .dot { color: var(--accent); }
+  /* min-width:0 is load-bearing. A flex item defaults to min-width:auto, so
+     this one refuses to shrink below the session id — an unbroken 27-character
+     string — and pushes the page 220px wider than the screen. The symptom is a
+     phone that scrolls sideways, and the cause is nowhere near the symptom. */
+  header > div {
+    flex: 1;
+    min-width: 0;
+  }
+  header .meta {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* What the next message runs with: which model, and which tools it may call.
+     A panel above the composer rather than controls in the header — the header
+     leaves about 100px on a phone, which does not hold a model name, let alone
+     thirteen tool checkboxes. It opens where the thing it governs is typed. */
+  #tuning {
+    border-top: 1px solid var(--border);
+    padding: 10px 16px 12px;
+    font-size: 12px;
+    color: var(--muted);
+    max-height: 46vh;
+    overflow-y: auto;
+  }
+  #tuning .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  #model-pick, #agent-pick {
+    font: inherit;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    min-height: 32px;
+    max-width: 100%;
+    cursor: pointer;
+  }
+  #model-pick option:disabled { color: var(--muted); }
+  #tuning .row label { min-width: 44px; }
+  header button {
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--fg);
+    cursor: pointer;
+  }
+  header button:hover { background: var(--bubble-assistant); }
+  /* A link, not a button: /logout clears the cookie and redirects, which is
+     exactly what following a link does. It also means it still works if the
+     page's script never ran. */
+  #logout {
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+  }
+  #logout:hover { color: var(--fg); }
+  @media (max-width: 600px) { #logout { min-height: 44px; } }
+  .header-actions { display: flex; gap: 6px; flex: none; }
+  /* Every conversation you have had here, and what has been published from it.
+     Kept out of the log rather than inside it: a list of conversations is not
+     part of any conversation. */
+  #history {
+    border-bottom: 1px solid var(--border);
+    max-height: 46vh;
+    overflow-y: auto;
+    padding: 6px 8px;
+  }
+  #history button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: 0;
+    border-radius: 8px;
+    padding: 9px 8px;
+    color: inherit;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    min-height: 44px;
+  }
+  #history button:hover { background: var(--bubble-assistant); }
+
+  #history button[aria-current="true"] { background: var(--bubble-assistant); }
+  #history .when { color: var(--muted); font-size: 11px; }
+  #history .count { color: var(--accent); font-size: 11px; }
+  #history .empty { color: var(--muted); font-size: 13px; padding: 10px 8px; }
+  #log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .msg {
+    display: flex;
+    flex-direction: column;
+    max-width: 82%;
+  }
+  .msg.has-embed {
+    max-width: 100%;
+    width: 420px;
+  }
+  .msg.has-embed .bubble {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+  }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.assistant { align-self: flex-start; align-items: flex-start; }
+  .msg .bubble {
+    padding: 10px 13px;
+    border-radius: 14px;
+    word-wrap: break-word;
+    line-height: 1.4;
+    font-size: 14px;
+  }
+  .msg.user .bubble {
+    background: var(--bubble-user);
+    color: var(--bubble-user-fg);
+    border-bottom-right-radius: 4px;
+    white-space: pre-wrap;
+  }
+  .msg.assistant .bubble {
+    background: var(--bubble-assistant);
+    color: var(--bubble-assistant-fg);
+    border-bottom-left-radius: 4px;
+    white-space: pre-wrap; /* plain text while streaming; markdown below overrides once rendered */
+  }
+  .msg.assistant .bubble > :first-child { margin-top: 0; }
+  .msg.assistant .bubble > :last-child { margin-bottom: 0; }
+  .msg.assistant .bubble p, .msg.assistant .bubble ul, .msg.assistant .bubble ol {
+    white-space: normal;
+    margin: 0 0 8px;
+  }
+  .msg.assistant .bubble ul, .msg.assistant .bubble ol { padding-left: 20px; }
+  .msg.assistant .bubble a { color: inherit; }
+  .msg.assistant .bubble code {
+    background: rgba(127, 127, 127, 0.2);
+    border-radius: 3px;
+    padding: 0 3px;
+    font-size: 0.9em;
+  }
+  .msg.assistant .bubble pre {
+    background: rgba(127, 127, 127, 0.15);
+    border-radius: 8px;
+    padding: 8px 10px;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .msg.assistant .bubble pre code { background: none; padding: 0; }
+  .msg.assistant .bubble .steps {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: pre-wrap;
+    background: rgba(127, 127, 127, 0.1);
+    border-radius: 8px;
+    padding: 6px 8px;
+    margin-bottom: 8px;
+  }
+  .msg.assistant .thinking {
+    font-size: 12px;
+    color: var(--muted);
+    /* Now a sibling of the text and tool blocks inside the bubble, so it uses
+       the same 8px rhythm as .steps rather than the old outside-the-bubble
+       inset. */
+    margin: 0 0 8px;
+  }
+  .msg.assistant .thinking > summary {
+    cursor: pointer;
+    user-select: none;
+  }
+  /* A clipped label dissolves into the background instead of ending in an
+     ellipsis. An alpha mask, not a colour gradient, so it works unchanged in
+     both themes and over any bubble colour. */
+  .msg.assistant .thinking > summary > span {
+    display: inline-block;
+    vertical-align: bottom;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .msg.assistant .thinking > summary > span.faded {
+    -webkit-mask-image: linear-gradient(to right, #000 55%, transparent 100%);
+    mask-image: linear-gradient(to right, #000 55%, transparent 100%);
+  }
+  .msg.assistant .thinking > div {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap;
+    background: rgba(127, 127, 127, 0.1);
+    border-radius: 8px;
+    padding: 6px 8px;
+    margin-top: 4px;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  /* Publishing lives beside the message, not inside it: the words are what was
+     said and this is a decision about them. A checkbox per turn, and every turn
+     gets a record either way — so this chooses whether the words go with it,
+     not whether the turn is admitted to have happened. */
+  .msg { position: relative; }
+  .pub {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--muted);
+    margin: 2px 6px;
+    user-select: none;
+  }
+  .pub input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+  .pub label { cursor: pointer; }
+  .msg.user .pub { align-self: flex-end; }
+  .pub-state { font-variant-numeric: tabular-nums; }
+  .pub-state.live { color: var(--accent); }
+  /* Pressable here and only here: on the reader a bar is a statement, in the
+     chat it is a control that puts the words back. */
+  #log .redacted { cursor: pointer; }
+  #log .redacted:hover { opacity: 0.75; }
+  /* Appears where the selection is, so redacting is one press on the words
+     themselves rather than a control somewhere else that has to explain what it
+     acts on. Fixed, because the log scrolls under it. */
+  #redact-btn {
+    position: fixed;
+    z-index: 20;
+    transform: translate(-50%, -100%);
+    font-size: 12px;
+    padding: 6px 12px;
+    min-height: 32px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--fg);
+    color: var(--bg);
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  }
+  /* `display` on an id selector outranks the browser's own `[hidden]` rule, so
+     setting `hidden` on this row did nothing: Publish and Delete sat under
+     every empty conversation, offering to delete a conversation that did not
+     exist yet. Anything given a `display` here has to say this too. */
+  #publish-row[hidden] { display: none; }
+  #publish-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  #publish-row button {
+    font-size: 13px;
+    padding: 8px 14px;
+    min-height: 36px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--accent-fill);
+    color: #fff;
+    cursor: pointer;
+  }
+  #publish-row button:disabled { opacity: 0.5; cursor: default; }
+  /* Deleting belongs to the conversation you are looking at, not to a row in a
+     list — you cannot judge what you are removing from a title and a date. It
+     sits at the far end of the row, quiet, away from the button people mean to
+     press. */
+  #delete-btn {
+    margin-left: auto;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    padding: 7px 12px;
+  }
+  #delete-btn:hover { color: #dc2626; border-color: #dc2626; }
+  #delete-btn.arm { color: #fff; background: #dc2626; border-color: #dc2626; }
+  @media (max-width: 600px) {
+    #publish-row { padding: 10px; }
+    #publish-row button { min-height: 44px; }
+  }
+  /* What you did, in one line. The message that carries it says a good deal
+     more — the index, the full text — because that is context the agent needs
+     and would otherwise not have. None of it is news to the person who just
+     pressed the button, and the card below repeats the rest. */
+  /* It holds a card, so the bubble is only a wrapper. */
+  .did-turn .bubble { background: none; padding: 0; }
+  .did {
+    align-self: center;
+    font-size: 12px;
+    font-style: italic;
+    color: var(--muted);
+    margin: 6px 0 2px;
+  }
+  .msg .label {
+    font-size: 11px;
+    color: var(--muted);
+    margin: 2px 6px;
+  }
+  .msg.error .bubble {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+  .bubble atproto-post {
+    display: block;
+    margin: 6px 0;
+    max-width: 100%;
+  }
+  /* Cards drawn by a tool call, in place. Unlike the prose-scraped embeds they
+     sit inside an ordinary reply next to text, so the message keeps its normal
+     width and only the card is capped — `.has-embed` pins the whole message to
+     420px, which is right for a message that is nothing but cards and wrong for
+     a plan that happens to contain three. */
+  .msg.assistant .bubble .cards { margin: 0 0 8px; }
+  /* A width, not just a cap. A bubble holding nothing but cards shrinks to its
+     minimum content width, and <atproto-post> will happily render a link card
+     one character per line inside it. */
+  .msg.assistant .bubble .cards .post {
+    width: 480px;
+    max-width: 100%;
+  }
+  .msg.assistant .bubble .cards atproto-post { max-width: 100%; }
+  /* An account card, capped like a post card. The follow row sits under the
+     library's card rather than inside it — it is ours, and it acts. */
+  .msg.assistant .bubble .actor {
+    width: 480px;
+    max-width: 100%;
+    margin: 0 0 8px;
+    white-space: normal;
+  }
+  /* The card counts followers by enumerating records and undercounts by a
+     factor of nearly three, so its stat row is replaced with getProfile's
+     numbers rather than shown alongside them. */
+  .actor atproto-profile::part(stats) { display: none; }
+  .actor-stats {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  /* What a card lets you do — follow, reply, like, post. One style for all of
+     them, on every kind of card, because they are the same kind of thing: the
+     product's actual actions, none of them wired up yet. */
+  .card-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .card-action {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 999px;
+    background: var(--bubble-user);
+    color: #fff;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .card-action:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* A draft: recognisably a Bluesky post, visibly not one yet. The dashed edge
+     and the label are the whole distinction — a reply can hold both live posts
+     and proposals, and they must never read the same. */
+  .msg.assistant .bubble .draft {
+    /* A width, not just a cap — same reason as the post card. A bubble holding
+       nothing but a draft shrinks to its minimum content width, which turns the
+       edit box into a column four words wide. */
+    width: 480px;
+    max-width: 100%;
+    margin: 0 0 8px;
+    padding: 10px 12px;
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    background: var(--bg);
+    white-space: normal;
+  }
+  /* Whether the post carries a link back to the turn that proposed it. Off by
+     default: linking publishes that turn, and publishing is not something a
+     checkbox should do while nobody is looking. */
+  .draft-link {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+  .draft-link input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+  .draft-link label { cursor: pointer; }
+  .draft-badge {
+    display: inline-block;
+    margin-bottom: 8px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--bubble-user);
+    color: #fff;
+  }
+  /* Reads as a box you type in, not as the post's text. Without a border it
+     looked like static copy and nobody would think to click it — and editing
+     the words is the entire point of showing them. Used by a post card's
+     reply and repost boxes. */
+  .compose-text {
+    display: block;
+    width: 100%;
+    min-height: 68px;
+    resize: vertical;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: var(--bg);
+    color: var(--fg);
+    font: inherit;
+    font-size: 16px;   /* same reason as #input */
+    line-height: 1.45;
+    overflow: hidden;
+  }
+  .compose-text:focus {
+    outline: none;
+    border-color: var(--bubble-user);
+  }
+  .compose-foot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .compose-count {
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Over the limit is not a style choice — the post cannot be published at all,
+     so it reads as an error and the button goes with it. */
+  .compose-count.over { color: #dc2626; font-weight: 600; }
+  /* Only the first button takes the slack, so repost's Quote and Repost sit
+     together on the right instead of being pushed to opposite ends. */
+  .compose-foot .card-action:first-of-type { margin-left: auto; }
+  /* The reply and repost boxes hang under a post card rather than inside a
+     bordered container, so they supply their own outer spacing. */
+  .post .compose { margin-top: 6px; }
+  /* The three things you can do with a post, always on the card. These only
+     change what it shows — which box is open, whether it is marked to like —
+     so unlike the send buttons they are pressable.
+
+     Filled means *available*, not selected. The blue is the invitation to
+     press; once an action is the one in effect its box is open right below it,
+     saying so far better than the button could, and a second filled pill next
+     to the live one only competes with it for the eye. */
+  .card-tab {
+    padding: 6px 14px;
+    border: 1px solid var(--bubble-user);
+    border-radius: 999px;
+    background: var(--bubble-user);
+    color: #fff;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .card-tab[aria-pressed="true"] {
+    background: transparent;
+    color: var(--bubble-user);
+  }
+  .card-tab:hover { filter: brightness(1.1); }
+  #composer {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    /* Clear the home indicator on a phone; zero everywhere else. */
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--border);
+  }
+  #input {
+    flex: 1;
+    resize: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    /* 16px is not a preference. Safari zooms the whole page when a field under
+       16px takes focus, and does not zoom back out — so every tap to type
+       leaves the layout wrong until the reader pinches it back. */
+    font-size: 16px;
+    font-family: inherit;
+    background: var(--bg);
+    color: var(--fg);
+    max-height: 160px;
+  }
+  #send {
+    padding: 0 18px;
+    border: none;
+    border-radius: 8px;
+    background: var(--bubble-user);
+    color: #fff;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #send:disabled { opacity: 0.5; cursor: default; }
+  #tune {
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #tune.open { color: var(--fg); border-color: var(--accent); }
+  #stop {
+    padding: 0 18px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #stop:hover { color: var(--fg); }
+  #spinner {
+    align-self: center;
+    width: 16px;
+    height: 16px;
+    flex: none;
+    border: 2px solid var(--border);
+    border-top-color: var(--bubble-user);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* Someone who has asked the system for less motion still needs to see that
+     the turn is running — pulse the ring instead of spinning it. */
+  /* Phones. The first width breakpoint this page has ever had — everything
+     above was written at desktop width and merely happened to survive being
+     narrowed.
+
+     Four things change, and each is a real defect rather than a refinement:
+
+     - **The bubbles widen.** 82% of a 390px screen throws away 70px to hold a
+       conversational asymmetry that only reads as one when there is room for
+       it. On a phone it reads as a narrow column.
+     - **The gutters shrink.** 16px each side leaves 358px of usable width for
+       cards that want 480.
+     - **Tap targets grow to 44px.** The card tabs are comfortable with a mouse
+       and fiddly with a thumb.
+     - **The header stacks.** Title, session id and New chat do not fit on one
+       line, and the session id is the part that should give way. */
+  @media (max-width: 600px) {
+    #log { padding: 12px 10px; gap: 8px; }
+    header { padding: 10px 12px; flex-wrap: wrap; row-gap: 4px; }
+    header .meta { width: 100%; order: 3; }
+    /* The message takes the whole row and the *bubble* keeps the asymmetry.
+       Capping .msg instead does not work: a card is 480px wide and its
+       `max-width: 100%` resolves against a parent that is itself sized by its
+       content, so the constraint is circular and the card simply overflows —
+       clipped rather than scrolling, which is worse, because half the Reply
+       button is then off the screen with no way to reach it. */
+    .msg { max-width: 100%; width: 100%; }
+    .msg.user .bubble { max-width: 88%; }
+    .msg.has-embed { width: 100%; }
+    /* Definite widths the whole way down, or the chain breaks at whichever
+       link is shrink-to-fit: `auto` here collapsed a post card to 198px, and
+       <atproto-post> renders a link card one character per line inside that. */
+    .msg.assistant .bubble { width: 100%; }
+    .msg.assistant .bubble .cards .post,
+    .msg.assistant .bubble .actor,
+    .msg.assistant .bubble .draft { width: 100%; max-width: 100%; }
+    #composer { padding-left: 10px; padding-right: 10px; }
+
+    /* Comfortable under a thumb. 44px is the smallest target most guidance
+       agrees on, and these are the controls that publish things. */
+    .card-tab, .card-action, header button {
+      min-height: 44px;
+      padding-top: 10px;
+      padding-bottom: 10px;
+    }
+    .card-actions, .compose-foot { flex-wrap: wrap; gap: 6px; }
+    #send, #stop { min-height: 44px; }
+  }
+
+  /* Touch, which is not the same question as width — a small laptop has a
+     mouse and a large tablet does not. Anything that only appears on hover is
+     invisible here, so the hover styles simply do not apply. */
+  @media (hover: none) {
+    header button:hover { background: transparent; }
+    .card-tab:hover { filter: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #spinner { animation: pulse 1.4s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: 0.25; } }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div>
+      <h1>aligned<span class="dot">.</span>click</h1>
+      <div class="meta" id="session-meta">connecting&hellip;</div>
+    </div>
+    <div class="header-actions">
+      <button id="open-history" type="button">Conversations</button>
+      <button id="new-chat">New chat</button>
+      <a id="logout" href="/logout">Sign out</a>
+    </div>
+  </header>
+  <div id="history" hidden></div>
+  <div id="log"></div>
+  <div id="publish-row" hidden>
+    <button id="publish-btn" type="button">Publish this conversation</button>
+    <span id="publish-note"></span>
+    <button id="delete-btn" type="button">Delete</button>
+  </div>
+  <button id="redact-btn" type="button" hidden>Redact</button>
+  <div id="tuning" hidden>
+    <div class="row">
+      <label for="agent-pick">Agent</label>
+      <select id="agent-pick"></select>
+    </div>
+    <div class="row">
+      <label for="model-pick">Model</label>
+      <select id="model-pick"></select>
+    </div>
+    <p class="note" id="agent-note"></p>
+    <p class="note">Applies to the next message. Each reply records the model
+       that produced it, so switching mid-conversation stays visible.</p>
+  </div>
+  <form id="composer">
+    <textarea id="input" placeholder="Message the agent&hellip;" rows="1" autofocus></textarea>
+    <span id="spinner" hidden aria-hidden="true"></span>
+    <button id="tune" type="button" title="Model and tools" aria-label="Model and tools">Setup</button>
+    <button id="stop" type="button" hidden>Stop</button>
+    <button id="send" type="submit">Send</button>
+  </form>
+</div>
+<script>
+  // Empty means same origin, which is the whole point: this page is served by
+  // the auth proxy, and every call below goes back to it. Same origin means no
+  // CORS to configure, no preflight, and — the part that matters — the session
+  // cookie is sent automatically while staying unreadable to this script.
+  //
+  // Talking straight to opencode would skip authentication, session-ownership
+  // checks and the event filter in one step, so `?server=` is for pointing at
+  // a *different proxy*, not at opencode.
+  const PARAMS = new URLSearchParams(location.search);
+  const SERVER = PARAMS.get("server") || "";
+
+  // A product run. `?product=<name>` opens the session with that product's
+  // agent and sends its formula prompt automatically, so the page stops being
+  // a blank chat box and becomes that product.
+  //
+  // The formula lives in a file, not in this script: it is the product's real
+  // source code, and a change to it is a change to what the product does.
+  // `?note=` appends a one-off instruction under its own heading, so a per-run
+  // aside stays visibly separate from the formula.
+  // `?product=<name>` selects one; no product means no formula and the chat
+  // opens empty. It used to be inferred from `?creator=`, which quietly made
+  // the mechanism single-tenant — naming the product directly is what lets a
+  // second one exist without touching this file. Every other query parameter
+  // is substituted into the template as `{name}`.
+  const PRODUCT = PARAMS.get("product");
+  const RUN_NOTE = PARAMS.get("note");
+
+  // Who this browser is acting as. Fetched once; the header waits for it
+  // rather than showing a line that changes under the reader a moment later.
+  let whoami = null;
+
+  const log = document.getElementById("log");
+  const form = document.getElementById("composer");
+  const publishRow = document.getElementById("publish-row");
+  const publishBtn = document.getElementById("publish-btn");
+  const publishNote = document.getElementById("publish-note");
+
+  // Posts each turn produced, from the server. Used to redraw the cards when a
+  // conversation is opened again — they are recorded, so they do not depend on
+  // anything having been said about them.
+  let made = {};
+
+  // Spans of each turn's words that are covered: {message id: [words, ...]}.
+  // The server's copy is the one that counts — this is what it last said, so
+  // the bars come back on a conversation that is opened again.
+  let redactions = {};
+
+  // Which turns' words should be public. Ticked by default — the button is the
+  // consent, so nothing goes out unpressed, and the common case is "all of it
+  // except that one". Untick before pressing, or untick after and press again.
+  const wanted = new Set();
+  const denied = new Set();
+  // Turns whose record already carries their words, as the server last saw it.
+  let live = new Set();
+
+  // A record exists for every turn either way. This chooses whether its words
+  // go with it — the shape of the conversation is public regardless, which is
+  // the whole point and has to be said where somebody will read it.
+  // A box belongs to an element, and an element can stand for more than one
+  // turn: a live reply is one bubble however many assistant messages opencode
+  // split it into. So it governs a list of ids, and nothing counts elements
+  // against turns anywhere.
+  function publishBox(el, ids) {
+    const row = document.createElement("div");
+    row.className = "pub";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.id = "pub-" + ids[0];
+    box.checked = !ids.some((id) => denied.has(id));
+    const label = document.createElement("label");
+    label.htmlFor = box.id;
+    const state = document.createElement("span");
+    state.className = "pub-state";
+    const paint = () => {
+      const isLive = ids.some((id) => live.has(id));
+      state.textContent = isLive ? "published" : box.checked ? "will publish" : "withheld";
+      state.classList.toggle("live", isLive);
+    };
+    label.appendChild(state);
+    box.addEventListener("change", () => {
+      for (const id of ids) {
+        if (box.checked) { wanted.add(id); denied.delete(id); }
+        else { denied.add(id); wanted.delete(id); }
+      }
+      paint();
+      refreshPublishNote();
+    });
+    paint();
+    row.append(box, label);
+    el.appendChild(row);
+    return row;
+  }
+
+  function turnIDs() {
+    return [...log.querySelectorAll(".msg[data-mids]")]
+      .flatMap((el) => el.dataset.mids.split(",").filter(Boolean));
+  }
+
+  function chosen() {
+    return turnIDs().filter((id) => !denied.has(id));
+  }
+
+  function refreshPublishNote() {
+    const ids = turnIDs();
+    publishRow.hidden = ids.length === 0;
+    disarmDelete();
+    const pick = chosen().length;
+    const held = ids.length - pick;
+    publishNote.textContent = ids.length
+      ? `${ids.length} turn${ids.length === 1 ? "" : "s"} · ${pick} with words` +
+        (held ? ` · ${held} withheld` : "")
+      : "";
+  }
+
+  async function publishConversation() {
+    publishBtn.disabled = true;
+    const before = publishBtn.textContent;
+    publishBtn.textContent = "Publishing…";
+    try {
+      const out = await fetch(`${SERVER}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: sessionID, publish: chosen() }),
+      }).then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || `${r.status}`);
+        return j;
+      });
+      live = new Set(chosen());
+      for (const id of turnIDs()) {
+        const box = document.getElementById("pub-" + id);
+        if (box) box.dispatchEvent(new Event("change"));
+      }
+      // A write that failed is not a withheld turn, and must not look like one.
+      publishBtn.textContent = out.failed && out.failed.length
+        ? `${out.failed.length} did not land — press again`
+        : "Published";
+      publishNote.textContent =
+        `${out.published} of ${out.turns} with words · ${out.written} record(s) written`;
+    } catch (err) {
+      publishBtn.textContent = before;
+      addMessage("error", `Could not publish: ${err.message}`);
+    } finally {
+      publishBtn.disabled = false;
+    }
+  }
+
+  publishBtn.addEventListener("click", publishConversation);
+
+  // Deleting the conversation on screen, so what is being removed is legible
+  // rather than a title in a list. Still two presses: the first names what
+  // goes, including anything already public, because that part no later press
+  // can undo.
+  const deleteBtn = document.getElementById("delete-btn");
+  let deleteArmed = false;
+  let disarmTimer = null;
+  const disarmDelete = () => {
+    deleteArmed = false;
+    clearTimeout(disarmTimer);
+    deleteBtn.classList.remove("arm");
+    deleteBtn.textContent = "Delete";
+  };
+  // Three ways back out, because an armed delete that stays armed is a trap:
+  // look away, click anything else, or simply wait.
+  deleteBtn.addEventListener("blur", disarmDelete);
+  document.addEventListener("click", (e) => {
+    if (deleteArmed && e.target !== deleteBtn) disarmDelete();
+  }, true);
+  deleteBtn.addEventListener("click", async () => {
+    const turns = turnIDs().length;
+    if (!deleteArmed) {
+      deleteArmed = true;
+      deleteBtn.classList.add("arm");
+      deleteBtn.textContent = live.size
+        ? `Delete ${turns} turns, ${live.size} already published?`
+        : `Delete ${turns} turns?`;
+      deleteBtn.focus();
+      clearTimeout(disarmTimer);
+      disarmTimer = setTimeout(disarmDelete, 6000);
+      return;
+    }
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = "Deleting…";
+    try {
+      const out = await fetch(`${SERVER}/session/${sessionID}`, { method: "DELETE" })
+        .then(async (r) => {
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j.error || `${r.status}`);
+          return j;
+        });
+      if (out.failed && out.failed.length) {
+        addMessage("error", `Deleted, but ${out.failed.length} record(s) could not be `
+          + "removed from your repo. They are still public.");
+      }
+      deleteBtn.disabled = false;
+      disarmDelete();
+      newSession();
+    } catch (err) {
+      deleteBtn.disabled = false;
+      disarmDelete();
+      addMessage("error", `Could not delete: ${err.message}`);
+    }
+  });
+
+  // ---- past conversations ------------------------------------------------
+  //
+  // opencode keeps every session on disk, so nothing is ever lost by not
+  // publishing it — but until now there was no way back into one from here,
+  // which made "not ready to publish yet" feel like "gone".
+  const historyEl = document.getElementById("history");
+  document.getElementById("open-history").addEventListener("click", () => {
+    historyEl.hidden ? openHistory() : (historyEl.hidden = true);
+  });
+
+  async function openHistory() {
+    historyEl.hidden = false;
+    historyEl.textContent = "";
+    historyEl.appendChild(Object.assign(document.createElement("div"),
+      { className: "empty", textContent: "Loading…" }));
+    let list = [];
+    try {
+      // `keep` is the conversation on screen. It is empty until the first
+      // message, and sweeping the one somebody is sitting in would be a
+      // surprising way to lose what they were about to type.
+      const answer = await fetch(
+        `${SERVER}/sessions?keep=${encodeURIComponent(sessionID || "")}`).then((r) => r.json());
+      list = answer.sessions || [];
+    } catch (err) {
+      historyEl.textContent = "";
+      historyEl.appendChild(Object.assign(document.createElement("div"),
+        { className: "empty", textContent: `Could not load: ${err.message}` }));
+      return;
+    }
+    historyEl.textContent = "";
+    if (!list.length) {
+      historyEl.appendChild(Object.assign(document.createElement("div"),
+        { className: "empty", textContent: "No conversations yet." }));
+      return;
+    }
+    for (const s of list) {
+      const b = document.createElement("button");
+      b.type = "button";
+      if (s.id === sessionID) b.setAttribute("aria-current", "true");
+      const when = s.updated
+        ? new Date(s.updated).toLocaleString(undefined,
+            { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+        : "";
+      b.appendChild(document.createTextNode(s.title));
+      b.appendChild(document.createElement("br"));
+      const meta = document.createElement("span");
+      meta.className = "when";
+      meta.textContent = when;
+      b.appendChild(meta);
+      if (s.published) {
+        const pub = document.createElement("span");
+        // Not `.pub` — that is the checkbox row on a message, and two different
+        // things under one name is how a selector starts matching the wrong
+        // half of the page.
+        pub.className = "count";
+        pub.textContent = ` · ${s.published} published`;
+        b.appendChild(pub);
+      }
+      b.addEventListener("click", () => { historyEl.hidden = true; resume(s.id); });
+
+      historyEl.appendChild(b);
+    }
+  }
+
+  // Rebuild a conversation from what opencode stored. Deliberately routed
+  // through the same block shapes the live stream builds, so history and a
+  // running turn are drawn by one renderer — two would drift, and the one
+  // nobody looks at would be the wrong one.
+  async function resume(id) {
+    log.textContent = "";
+    wanted.clear(); denied.clear(); live = new Set();
+    publishRow.hidden = true;
+    publishBtn.textContent = "Publish this conversation";
+    sessionID = id;
+    meta.textContent = "loading…";
+    let messages = [];
+    try {
+      // What this conversation produced, before drawing it — the cards hang off
+      // user turns and have to be there as those turns are built.
+      // Covered spans come back in the same breath, before anything is drawn:
+      // a redacted turn has to come back redacted, not flash its words and then
+      // cover them.
+      const seen = await fetch(`${SERVER}/publish`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: id, inspect: true }),
+      }).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+      made = seen.made || {};
+      redactions = seen.redacted || {};
+      messages = await fetch(`${SERVER}/session/${id}/message`).then((r) => r.json());
+    } catch (err) {
+      addMessage("error", `Could not load that conversation: ${err.message}`);
+      return;
+    }
+    for (const m of messages) {
+      const info = m.info || {};
+      if (info.role === "user") {
+        const produced = made[info.id] || [];
+        const text = (m.parts || []).filter((p) => p.type === "text")
+          .map((p) => p.text).join("\n\n").trim();
+        // A user turn with a post attached is one of ours — the button's
+        // message, not something they typed. It is recognisable without a
+        // marker: nothing a person writes produces a post.
+        // Tagged at creation: rebuilding from the server is the one place the
+        // id is known for certain, so it is written down rather than inferred.
+        if (produced.length) {
+          const m2 = /^I (posted|replied|quoted)/.exec(text);
+          postedTurn(m2 ? m2[1] : "posted", produced, info.id);
+        } else if (text) {
+          addMessage("user", text).parentElement.dataset.mids = info.id;
+        }
+        continue;
+      }
+      if (info.role !== "assistant") continue;
+      const blocks = [];
+      for (const part of m.parts || []) {
+        if (part.type === "text" && (part.text || "").trim()) {
+          blocks.push({ kind: "text", text: part.text, messageID: info.id });
+        } else if (part.type === "reasoning" && (part.text || "").trim()) {
+          blocks.push({ kind: "reasoning", text: part.text });
+        } else if (part.type === "tool") {
+          const state = part.state || {};
+          blocks.push({
+            kind: "tool", tool: part.tool, input: state.input,
+            status: state.status, error: state.error,
+            messageID: info.id,
+            render: parseRender(state.output),
+          });
+        }
+      }
+      // Skip exactly what the server skips. `turns_from` drops a message with
+      // no text and no tool calls — "a turn with nothing in it is not a turn" —
+      // so a reasoning-only message is not a turn there. Rendering one here
+      // would make the two sequences different lengths, and the checkboxes are
+      // matched to turns by position: every box after the odd one out would
+      // then belong to the wrong message.
+      const isTurn = blocks.some((b) => (b.kind === "text" && b.text.trim()) || b.kind === "tool");
+      if (!isTurn) continue;
+      const visible = blocks.filter((b) =>
+        b.kind === "text" ? b.text.trim()
+        : b.kind === "reasoning" ? SETTINGS.showReasoning
+        : b.render || SETTINGS.showSteps);
+      if (!visible.length) continue;
+      const wrap = document.createElement("div");
+      wrap.className = "msg assistant";
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      for (const b of visible) {
+        try { bubble.appendChild(blockElement(b, true)); }
+        catch (err) { console.error("history render failed", b, err); }
+      }
+      wrap.appendChild(bubble);
+      wrap.dataset.mids = info.id;
+      if (info.modelID) {
+        const label = document.createElement("div");
+        label.className = "label";
+        label.textContent = `${info.providerID || ""}/${info.modelID}`.replace(/^\//, "");
+        wrap.appendChild(label);
+      }
+      log.appendChild(wrap);
+    }
+    meta.textContent = sessionLine();
+    // Which turns are already public, so the boxes come back ticked as they
+    // were left rather than as if nothing had been published.
+    // Look, do not write. Opening a conversation is not publishing it.
+    await syncTurns({ inspectOnly: true });
+    log.scrollTop = log.scrollHeight;
+  }
+
+  // Called when a turn finishes. It writes: every turn gets a record when it
+  // happens, so the shape of the conversation is public whether or not its
+  // words are.
+  //
+  // **It publishes nothing.** `publish` carries only what is already live, so a
+  // new turn gets a withheld record and the ticked boxes stay a statement of
+  // intent until the button is pressed. Sending `chosen()` here instead would
+  // turn ticked-by-default into publish-by-default, which is the opposite of
+  // what the button is for.
+  async function syncTurns({ inspectOnly = false } = {}) {
+    if (!sessionID) return;
+    try {
+      const body = inspectOnly
+        ? { session: sessionID, inspect: true }
+        : { session: sessionID, publish: [...live] };
+      const out = await fetch(`${SERVER}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then((r) => (r.ok ? r.json() : null));
+      if (out) {
+        live = new Set(out.live || []);
+        made = out.made || {};
+        redactions = out.redacted || {};
+        for (const mid of Object.keys(redactions)) redrawMessage(mid);
+        tagAndBox(out.turns_meta || []);
+        // Repaint: boxes created before the answer arrived say "will publish"
+        // on turns that are already out.
+        for (const b of log.querySelectorAll(".pub input")) b.dispatchEvent(new Event("change"));
+      }
+    } catch (err) { /* the chat is not held up by bookkeeping */ }
+  }
+
+  // The server's turn list is the authority on what a turn is — the log also
+  // holds error notices, which are ours and not part of the conversation.
+  // Give every element the turns it stands for, then a box each.
+  //
+  // Matched by *role order*, not position: a user element takes the next user
+  // turn, an assistant element takes every assistant turn up to the following
+  // user one. That holds whether a reply was streamed into one bubble or
+  // rebuilt as several on the way back in — the two produce different numbers
+  // of elements for the same conversation, which is what kept putting boxes on
+  // the wrong messages and left the turn carrying a post with none at all.
+  function tagAndBox(meta) {
+    const queue = [...meta];
+    for (const el of log.querySelectorAll(".msg.user, .msg.assistant")) {
+      if (el.dataset.mids) {
+        // Already knows what it is; just consume its turns from the queue.
+        const owned = new Set(el.dataset.mids.split(","));
+        while (queue.length && owned.has(queue[0].id)) queue.shift();
+      } else {
+        const ids = [];
+        if (el.classList.contains("user")) {
+          const i = queue.findIndex((t) => t.role === "user");
+          if (i >= 0) { ids.push(queue[i].id); queue.splice(0, i + 1); }
+        } else {
+          while (queue.length && queue[0].role === "assistant") ids.push(queue.shift().id);
+        }
+        if (!ids.length) continue;   // nothing left for it to stand for
+        el.dataset.mids = ids.join(",");
+      }
+      if (!el.querySelector(".pub")) publishBox(el, el.dataset.mids.split(","));
+    }
+    refreshPublishNote();
+  }
+
+  const input = document.getElementById("input");
+  const sendBtn = document.getElementById("send");
+  const stopBtn = document.getElementById("stop");
+  const spinner = document.getElementById("spinner");
+  const meta = document.getElementById("session-meta");
+  const newChatBtn = document.getElementById("new-chat");
+
+  // ---- what the next message runs with ---------------------------------------
+  //
+  // Two choices, both per message: which agent, and which model. opencode takes
+  // both on the prompt itself, so nothing here is global — no restart, no
+  // config file written, and two people using this at once can be on different
+  // ones. Switching mid-conversation is the point, and each reply records the
+  // model that produced it, so a conversation that changed models says so
+  // rather than being credited to whichever one was last.
+  //
+  // An **agent** is a named bundle of tools and permissions, which is why it is
+  // one dropdown and not a checkbox per tool. It is also the only mechanism
+  // that can offer `bash` to one person and not another: a prompt can carry a
+  // model, a tool list and an agent, but never a permission, so permission is
+  // set per agent in `opencode.json`. The server decides who may name which,
+  // and this page only ever offers what it was told.
+  const modelPick = document.getElementById("model-pick");
+  const agentPick = document.getElementById("agent-pick");
+  const agentNote = document.getElementById("agent-note");
+  const tuning = document.getElementById("tuning");
+  const tuneBtn = document.getElementById("tune");
+  const MODEL_KEY = "aligned.model";
+  const AGENT_KEY = "aligned.agent";
+  let agentBlurbs = {};
+
+  function chosenModel() {
+    const id = modelPick.value;
+    if (!id || !id.includes("/")) return null;
+    const [providerID, ...rest] = id.split("/");
+    return { providerID, modelID: rest.join("/") };
+  }
+
+  function chosenTools() {
+    // The "question" tool waits for a reply through an endpoint this UI does
+    // not implement, so it would hang forever — off always, not a choice.
+    return { question: false };
+  }
+
+  async function loadSetup() {
+    let out;
+    try {
+      out = await fetch(`${SERVER}/setup`).then((r) => (r.ok ? r.json() : null));
+    } catch { return; }
+    if (!out) return;
+
+    const storedModel = localStorage.getItem(MODEL_KEY);
+    const usable = (out.models || []).filter((m) => m.usable);
+    // Fall back rather than fail: a stored model whose file has gone, or which
+    // has been marked as unable to call tools since it was picked, must not
+    // leave the page pinned to something the server will refuse.
+    const startModel = usable.some((m) => m.id === storedModel) ? storedModel
+      : usable.some((m) => m.id === out.default) ? out.default
+      : (usable[0] || {}).id;
+    modelPick.replaceChildren();
+    for (const m of out.models || []) {
+      const option = document.createElement("option");
+      option.value = m.id;
+      // Named as its file names it, with what it cannot do said plainly. A
+      // model listed with no explanation looks like an oversight.
+      option.textContent = m.usable ? m.name : `${m.name} — no tool calls`;
+      option.disabled = !m.usable;
+      option.selected = m.id === startModel;
+      modelPick.appendChild(option);
+    }
+    if (startModel && startModel !== storedModel) localStorage.setItem(MODEL_KEY, startModel);
+    showModel(startModel);
+
+    const agents = out.agents || [];
+    // Same fallback as the model: an agent taken off this account since it was
+    // last chosen must not leave the page asking for something now refused.
+    const storedAgent = localStorage.getItem(AGENT_KEY) || "";
+    const startAgent = agents.some((a) => a.id === storedAgent) ? storedAgent : "";
+    agentBlurbs = Object.fromEntries(agents.map((a) => [a.id, a.description || ""]));
+    agentPick.replaceChildren();
+    for (const a of agents) {
+      const option = document.createElement("option");
+      option.value = a.id;
+      option.textContent = a.name;
+      option.selected = a.id === startAgent;
+      agentPick.appendChild(option);
+    }
+    // One agent is no choice. Hidden rather than shown disabled, because a
+    // control with a single option reads as something being missing.
+    agentPick.parentElement.hidden = agents.length < 2;
+    localStorage.setItem(AGENT_KEY, startAgent);
+    showAgent(startAgent);
+  }
+
+  function showAgent(id) {
+    agentNote.textContent = agentBlurbs[id] || "";
+    tuneBtn.textContent = id ? `Setup · ${id}` : "Setup";
+  }
+
+  // The header says what is running. It is read there and changed here, which
+  // is why the panel writes back to it rather than the line being built once.
+  let modelLabel = "";
+  function showModel(id) {
+    modelLabel = id || "";
+    if (sessionID) meta.textContent = sessionLine();
+  }
+  function sessionLine() {
+    return `${whoami ? "@" + whoami.handle + " · " : ""}session ${sessionID}`
+      + (modelLabel ? ` · ${modelLabel}` : "")
+      + (PRODUCT ? ` · ${PRODUCT}` : "");
+  }
+
+  modelPick.addEventListener("change", () => {
+    localStorage.setItem(MODEL_KEY, modelPick.value);
+    showModel(modelPick.value);
+  });
+
+  agentPick.addEventListener("change", () => {
+    localStorage.setItem(AGENT_KEY, agentPick.value);
+    showAgent(agentPick.value);
+  });
+
+  tuneBtn.addEventListener("click", () => {
+    tuning.hidden = !tuning.hidden;
+    tuneBtn.classList.toggle("open", !tuning.hidden);
+  });
+
+  let sessionID = null;
+  let pending = null; // in-flight assistant reply being streamed in, see sendMessage()
+  let postIndex = {}; // "3" -> at://... , learned by watching tool output (see AGENTS.md convention)
+
+  // Verbosity knobs, loaded from settings.json (dial back individually once
+  // things are working — these all default on so nothing gets hidden while
+  // debugging why a turn is stuck).
+  const DEFAULT_SETTINGS = {
+    // Which model drives the agent, as "providerID/modelID" (modelID may
+    // itself contain slashes). Empty = let the opencode server pick.
+    model: "openrouter/google/gemma-4-26b-a4b-it",
+    showSteps: true,
+    showToolInput: true,
+    showToolOutput: true,
+    // Reasoning ("thinking") text streams in the same `text` field as the
+    // answer, so it used to land straight in the bubble and read as if the
+    // model were talking to you. true collects it in a collapsed box above
+    // the reply; false drops it from the view entirely.
+    showReasoning: true,
+    showElapsedTime: true,
+    logEventsToConsole: true,
+    toolOutputPreviewChars: 600,
+    // Abort a turn only after this many seconds of *no activity at all*
+    // (no events streaming in) — an idle/stall timeout, not a cap on total
+    // turn length. A long multi-step turn stays alive as long as it keeps
+    // producing output.
+    idleTimeoutSeconds: 90,
+  };
+  let SETTINGS = { ...DEFAULT_SETTINGS };
+
+  async function loadSettings() {
+    try {
+      const res = await fetch("./settings.json", { cache: "no-store" });
+      if (res.ok) SETTINGS = { ...DEFAULT_SETTINGS, ...(await res.json()) };
+    } catch {
+      // settings.json is optional — defaults above apply.
+    }
+  }
+
+  // Only keep the view pinned to the bottom if it's already there — so once
+  // you scroll up to read earlier discussion, a busy agent's streaming
+  // updates don't yank you back down. The threshold gives a little slack for
+  // sub-pixel rounding and short content growth between frames.
+  function isPinnedToBottom() {
+    return log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+  }
+  function scrollToBottomIfPinned(wasPinned) {
+    if (wasPinned) log.scrollTop = log.scrollHeight;
+  }
+
+  function addMessage(role, text) {
+    const wrap = document.createElement("div");
+    wrap.className = `msg ${role}`;
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = text;
+    wrap.appendChild(bubble);
+    log.appendChild(wrap);
+    log.scrollTop = log.scrollHeight;
+    return bubble;
+  }
+
+  function setBusy(busy) {
+    input.disabled = busy;
+    sendBtn.disabled = busy;
+    sendBtn.hidden = busy;
+    stopBtn.hidden = !busy;
+    spinner.hidden = !busy;
+  }
+
+  // Stop the turn. The abort endpoint is the same one the idle timeout uses;
+  // the local finalize is what matters, because a turn that ignores the abort
+  // would otherwise leave the composer disabled forever. Whatever streamed so
+  // far is kept — a stopped turn is usually stopped *because* of what it was
+  // doing, so the trace is the point.
+  async function stopPending() {
+    if (!pending) return;
+    clearInterval(pending.tickTimer);
+    const { resolve } = pending;
+    block("stopped", "text").text = "\n_stopped_";
+    renderPending(true);
+    pending = null;
+    try {
+      await fetch(`${SERVER}/session/${sessionID}/abort`, { method: "POST" });
+    } catch {
+      /* the turn is already detached from the UI; a failed abort only wastes
+         server-side work, it doesn't wedge the page */
+    }
+    if (resolve) resolve();
+  }
+
+  async function newSession() {
+    log.innerHTML = "";
+    meta.textContent = "starting session…";
+    pending = null;
+    postIndex = {};
+    setBusy(false);
+    try {
+      wanted.clear(); denied.clear(); live = new Set();
+      publishRow.hidden = true;
+      publishBtn.textContent = "Publish this conversation";
+      whoami = await fetch(`${SERVER}/me`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      const res = await fetch(`${SERVER}/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const session = await res.json();
+      sessionID = session.id;
+      // Who, then which conversation, then what is answering. The handle first
+      // because it is the one that changes what a click *means*: every post,
+      // like and reply from this page goes out under it.
+      meta.textContent = sessionLine();
+      if (PRODUCT) startProductRun();
+    } catch (err) {
+      meta.textContent = `could not reach opencode server at ${SERVER}`;
+      addMessage("error", `Failed to start a session: ${err.message}\n\nIs "opencode serve" running and is ${location.origin} allowed via --cors?`);
+    }
+  }
+
+  // Send the product's formula as the opening message. It goes in as a normal
+  // user turn rather than a hidden system prompt, so the transcript shows
+  // exactly what was asked — you can read a run without knowing the template.
+  async function startProductRun() {
+    let template;
+    try {
+      const res = await fetch(`products/${PRODUCT}/prompt.md`);
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      template = await res.text();
+    } catch (err) {
+      addMessage("error", `Could not load the ${PRODUCT} prompt: ${err.message}`);
+      return;
+    }
+    let text = template;
+    for (const [key, value] of PARAMS) {
+      if (key !== "product" && key !== "note") text = text.replaceAll(`{${key}}`, value);
+    }
+    if (RUN_NOTE) text += `\n\n## For this run\n\n${RUN_NOTE}\n`;
+    sendMessage(text);
+  }
+
+  // A single prompt can make opencode run several tool-call steps before it
+  // replies — each step is its own assistant message (its own messageID),
+  // not just another part of one message. So text/tool parts are collected
+  // across *any* assistant message for the session while `pending` is set,
+  // and the turn only really ends at `session.idle` — not when one of those
+  // sub-messages completes.
+  // Render a tool call's arguments as `key=value` pairs so the trace shows
+  // *what* the tool was asked to do — the search keywords, the limit, the
+  // delegated task, etc. Arrays (e.g. search `terms`) are shown in full;
+  // an earlier version filtered to strings only and silently dropped them,
+  // which is exactly why the searched keywords never appeared.
+  function summarizeInput(input) {
+    if (!input || typeof input !== "object") return "";
+    const fmt = (v) => {
+      if (Array.isArray(v)) return `[${v.map(fmt).join(", ")}]`;
+      if (typeof v === "string") return v;
+      if (typeof v === "number" || typeof v === "boolean") return String(v);
+      if (v && typeof v === "object") return JSON.stringify(v);
+      return "";
+    };
+    return Object.entries(input)
+      .map(([k, v]) => {
+        const s = fmt(v);
+        return s === "" ? "" : `${k}=${s}`;
+      })
+      .filter(Boolean)
+      .join("  ")
+      .slice(0, 500);
+  }
+
+  // One line per tool call, e.g. `✓ search-posts: terms=[coffee]`, with an
+  // indented output preview once it completes — the "verbose" trace that makes
+  // a stuck turn diagnosable instead of a blank "…". The line is rewritten in
+  // place as the call progresses, so a half-finished call never shows partial
+  // output mid-stream.
+  // A failed call used to keep the running "…" marker for the rest of the
+  // session, so a tool that errored in a fraction of a second looked like one
+  // still working — and the turn appeared to hang on it. It gets its own marker
+  // and its error text.
+  const TOOL_MARK = { completed: "✓", error: "✗" };
+
+  function toolLine(b) {
+    let line = `${TOOL_MARK[b.status] || "…"} ${b.tool}`;
+    if (SETTINGS.showToolInput && b.inputSummary) line += `: ${b.inputSummary}`;
+    const detail = b.status === "error" ? b.error : SETTINGS.showToolOutput && b.outputPreview;
+    if (detail) line += `\n    ${detail.replace(/\n/g, "\n    ")}`;
+    return line;
+  }
+
+  // A tool can ask the UI to draw something by ending its output with one
+  // `RENDER {json}` line — see tools/render.py for why. Dispatch is on the
+  // payload's `kind`, so a render tool the UI doesn't know about yet falls back
+  // to its text output instead of disappearing.
+  const RENDER_RE = /^RENDER (\{.*\})$/m;
+
+  function parseRender(output) {
+    const m = RENDER_RE.exec(output || "");
+    if (!m) return null;
+    try {
+      const payload = JSON.parse(m[1]);
+      return payload && payload.kind ? payload : null;
+    } catch {
+      // Truncated or malformed — show the tool's text instead of nothing.
+      return null;
+    }
+  }
+
+  // The rendered form of a tool call: cards where the call happened. Reads
+  // nothing from the reply text, which is the whole point — see PLAN.md
+  // workstream 6.
+  function renderElement(payload, messageID) {
+    if (payload.kind === "posts") return renderPosts(payload);
+    if (payload.kind === "actor") return renderActor(payload);
+    if (payload.kind === "draft") return renderDraft(payload, messageID);
+    return null;
+  }
+
+  // Every action a card offers is inert for now, and all of them are inert the
+  // same way: a real-looking button that is disabled and says why on hover. The
+  // point is that the shape of the product exists before the writes do — where
+  // the action sits, what it is called, what the card looks like with it. What
+  // must never happen is a live-looking button that silently does nothing: a
+  // reply, a like and a follow are all public and all notify someone, so a
+  // creator who believes they pressed one has been lied to by the UI.
+  // Ask the server to write something to Bluesky, as whoever is logged in. The
+  // page never says who it is — the cookie does — and never says what the CID
+  // of a post is, because the server looks that up itself. All this can assert
+  // is which post and which verb.
+  async function act(body) {
+    const res = await fetch(`${SERVER}/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || `${res.status} ${res.statusText}`);
+    return out;
+  }
+
+  // Tell the agent what was just done, in the one channel it reads.
+  //
+  // Two reasons, and the second is the one that makes it worth a turn. The
+  // agent's picture of the conversation is otherwise wrong the moment anybody
+  // presses a button — it goes on believing it proposed something nobody acted
+  // on. And a card only reaches the published record by being *drawn*: the
+  // publish path reads refs off RENDER lines in tool output, so a post nothing
+  // showed is a post the reader cannot draw. Asking the agent to show it fixes
+  // both at once.
+  // The line that says what you did. The conversation holds a fuller message
+  // for the agent's sake; this is the part addressed to the person.
+  // One element, because checkboxes are matched to turns by position and the
+  // server counts this as one turn. Rendering the line and the card as two
+  // siblings put every box after it on the wrong message — and this turn, which
+  // carries the post, got none at all, so Publish could never include it and
+  // the reader never got the card.
+  function postedTurn(what, uris, messageID) {
+    const wrap = document.createElement("div");
+    // On the assistant side with the other cards, because that is what this is:
+    // the result of a tool call, not something typed. On the server it is a
+    // user turn — the message the button inserted — and those two facts used to
+    // fight, because turns were matched to elements by role order, so an
+    // assistant-looking element claimed assistant turns while the user turn it
+    // stood for went unclaimed: no checkbox, never published, no card.
+    //
+    // They no longer have to agree. The id comes back from the action that
+    // created this, so it is stated outright and nothing is inferred from how
+    // the turn is drawn.
+    wrap.className = "msg assistant did-turn";
+    if (messageID) wrap.dataset.mids = messageID;
+    const line = document.createElement("div");
+    line.className = "did";
+    line.textContent = `you ${what}`;
+    wrap.appendChild(line);
+    for (const uri of uris || []) {
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      try { bubble.appendChild(renderElement({ kind: "posts", posts: [{ uri }] })); }
+      catch (err) { console.error("could not draw the posted card", err); }
+      wrap.appendChild(bubble);
+    }
+    log.appendChild(wrap);
+    return wrap;
+  }
+
+  // Show what was just posted, and put it in the conversation. Neither half
+  // asks the model for anything: the server has already inserted the message
+  // (with noReply, so it costs no turn) and attached the post as a reference to
+  // it. This only draws what happened.
+  //
+  // It used to ask the agent to call show-post. That made the card — and
+  // therefore the reference in the published record — depend on a model
+  // choosing to obey, which it did not always do. The card is a fact about
+  // what the person did, so it should not be somebody's decision.
+  function showPosted(what, made, posted) {
+    if (!made || !made.uri) return;
+    postedTurn(what, [made.uri], made.messageID);
+    log.scrollTop = log.scrollHeight;
+    // The turn the server just created is publishable like any other.
+    syncTurns({ inspectOnly: true });
+  }
+
+  // A button that publishes something. Disabled while in flight and left
+  // disabled afterwards, showing what happened: these are all public and most
+  // of them notify somebody, so the failure to design against is a second
+  // press — not a missing one.
+  function sendAction(label, done, run) {
+    const el = document.createElement("button");
+    el.className = "card-action";
+    el.type = "button";
+    el.textContent = label;
+    el.addEventListener("click", async () => {
+      el.disabled = true;
+      const original = el.textContent;
+      el.textContent = "…";
+      try {
+        await run();
+        el.dataset.sent = "true";
+        el.textContent = done;
+      } catch (err) {
+        // Back to pressable: these failures are all things the person can fix —
+        // too long, already deleted, not logged in any more.
+        el.textContent = original;
+        el.disabled = false;
+        addMessage("error", `Could not ${label.toLowerCase()}: ${err.message}`);
+      }
+    });
+    return el;
+  }
+
+  // The card's own numbers, kept honest without re-reading the post.
+  //
+  // <atproto-post> fetches the counts once and has no reason to fetch again, so
+  // an action that lands leaves a card saying what was true a moment ago —
+  // which reads as the button not having worked.
+  //
+  // The obvious fix, reading the post back, is the wrong one: the appview
+  // indexes from the firehose, so a like is not necessarily counted the instant
+  // createRecord returns. Read immediately and you often get the old number,
+  // which looks exactly like a failure.
+  //
+  // So the count is *derived*, the way the Bluesky app derives it (see
+  // src/state/cache/post-shadow.ts, mergeShadow): keep the server's count and
+  // the server's view of what you had already done, and add the difference
+  // between that and what you have done since.
+  //
+  //     shown = serverCount + (liked now ? 1 : 0) - (server said liked ? 1 : 0)
+  //
+  // which is stable under re-fetching. When the post is eventually read again
+  // with the like counted and viewer.like set, the difference is zero and the
+  // number does not move.
+  //
+  // This writes into another library's shadow DOM, so it fails silently: the
+  // count is decoration and the record is the fact.
+  function countNodes(card) {
+    try {
+      const counts = card && card.shadowRoot && card.shadowRoot.querySelector('[part="counts"]');
+      return counts ? [...counts.querySelectorAll('[part="count"]')] : [];
+    } catch (err) { return []; }
+  }
+
+  function setCounts(card, counts) {
+    for (const span of countNodes(card)) {
+      const label = span.textContent.trim().split(/\s+/).pop();
+      const b = span.querySelector("b");
+      if (b && counts[label] !== undefined) b.textContent = String(counts[label]);
+    }
+  }
+
+  function inertAction(label) {
+    const el = document.createElement("button");
+    el.className = "card-action";
+    el.type = "button";
+    el.textContent = label;
+    el.disabled = true;
+    el.title = "Not connected";
+    return el;
+  }
+
+  function actionRow(...buttons) {
+    const row = document.createElement("div");
+    row.className = "card-actions";
+    row.append(...buttons);
+    return row;
+  }
+
+  function renderPosts(payload) {
+    const box = document.createElement("div");
+    box.className = "cards";
+    for (const post of payload.posts || []) {
+      if (!post.uri) continue;
+      const wrap = document.createElement("div");
+      wrap.className = "post";
+      const el = document.createElement("atproto-post");
+      el.setAttribute("src", post.uri);
+      wrap.append(el, postFoot(payload, post.uri, el));
+      box.appendChild(wrap);
+    }
+    return box.firstChild ? box : null;
+  }
+
+  // A control that changes what the card shows rather than writing anything:
+  // which box is open, whether this post is marked to like. Pressable, unlike
+  // the send buttons, because nothing leaves the browser when you press it.
+  function toggleAction(label) {
+    const el = document.createElement("button");
+    el.className = "card-tab";
+    el.type = "button";
+    el.textContent = label;
+    el.setAttribute("aria-pressed", "false");
+    el.title = "Not connected";
+    return el;
+  }
+
+  // What sits under a post card. All three things you can do with someone
+  // else's post are always here, whatever the tool was called for: the agent
+  // proposing a quote is a suggestion, and the creator who would rather reply
+  // has to be one click from doing so.
+  //
+  // The mode only decides which box is already open and holding words. That is
+  // how the agent's intention reaches the screen — "you could reply to this"
+  // written in prose is a suggestion nobody can act on, while the same words
+  // passed as an argument arrive somewhere they can be edited and sent. The
+  // workstream's own inversion, applied one level further.
+  function postFoot(payload, uri, card) {
+    const mode = payload.mode || "default";
+    const limit = payload.limit || 300;
+    const prefill = payload.text || "";
+
+    const wrap = document.createElement("div");
+    wrap.className = "post-foot";
+
+    // A suggestion belongs to the mode it was made for and does not follow the
+    // creator into another one: a comment written to head a quote post is not a
+    // reply to its author, and pre-filling it as one would put words in their
+    // mouth that nobody chose. Each box keeps whatever is typed into it, so
+    // switching back and forth loses nothing.
+    const panels = {
+      reply: composeBox({
+        text: mode === "reply" ? prefill : "",
+        limit,
+        placeholder: "Write a reply…",
+      }),
+      repost: composeBox({
+        text: mode === "repost" ? prefill : "",
+        limit,
+        placeholder: "Say something about it, or repost it as it is…",
+      }),
+    };
+    panels.reply.foot.appendChild(sendAction("Reply", "Replied", async () => {
+      const made = await act({ action: "reply", uri, text: panels.reply.area.value,
+                               origin: { session: sessionID } });
+      mine.replies += 1;
+      paint();
+      showPosted("replied", made, panels.reply.area.value);
+    }));
+
+    // Reposting plainly and quoting are genuinely different acts — one passes
+    // the post along unchanged, the other puts the creator's own words in front
+    // of their audience — but they are the same button, because the box already
+    // decides which it is. The label follows the box rather than asking the
+    // creator to notice that it has: empty means repost, written-in means quote.
+    const repost = sendAction("Repost", "Reposted", async () => {
+      const text = panels.repost.area.value.trim();
+      // The box decides which act this is, so it also decides which record
+      // gets written: a quote is a post embedding another, a repost is not a
+      // post at all — and they are counted separately on the card.
+      if (text) {
+        const made = await act({ action: "quote", uri, text,
+                                 origin: { session: sessionID } });
+        mine.quotes += 1;
+        paint();
+        showPosted("quoted", made, text);
+      } else {
+        await act({ action: "repost", uri });
+        mine.reposted = true;
+        alreadyReposted = true;
+        paint();
+      }
+    });
+    panels.repost.foot.appendChild(repost);
+    // Already reposting a post does not use up quoting it — they are different
+    // records and counted separately, and wanting to add words later is the
+    // normal reason to come back. So "Reposted" only closes the plain path:
+    // type something and the button is live again as a quote.
+    let alreadyReposted = false;
+    const relabel = () => {
+      if (repost.dataset.sent === "true") return;  // this press is done; the label is its receipt
+      const quoting = panels.repost.area.value.trim() !== "";
+      repost.textContent = quoting ? "Repost with quote" : (alreadyReposted ? "Reposted" : "Repost");
+      repost.disabled = alreadyReposted && !quoting;
+    };
+    panels.repost.area.addEventListener("input", relabel);
+    relabel();
+
+    // What the network last told us, and what has been done since. The card is
+    // painted from both, never from one alone.
+    const server = { counts: null, liked: false, reposted: false };
+    const mine = { liked: false, reposted: false, replies: 0, quotes: 0 };
+    const paint = () => {
+      if (!server.counts) return;
+      setCounts(card, {
+        likes: Math.max(0, server.counts.likes + (mine.liked ? 1 : 0) - (server.liked ? 1 : 0)),
+        reposts: Math.max(0, server.counts.reposts + (mine.reposted ? 1 : 0) - (server.reposted ? 1 : 0)),
+        replies: server.counts.replies + mine.replies,
+        quotes: server.counts.quotes + mine.quotes,
+      });
+    };
+
+    const tabs = { reply: toggleAction("Reply"), repost: toggleAction("Repost") };
+    const like = toggleAction("Like");
+    like.title = "";
+    let likeUri = null;
+    let liking = false;
+    like.addEventListener("click", async () => {
+      if (liking) return;
+      liking = true;
+      const wasLiked = like.getAttribute("aria-pressed") === "true";
+      // Move the mark first: a like that takes a moment to land should not feel
+      // like a button that did not respond. Put back if the write fails.
+      like.setAttribute("aria-pressed", String(!wasLiked));
+      mine.liked = !wasLiked;
+      paint();
+      try {
+        if (wasLiked) {
+          if (likeUri) await act({ action: "undo", uri: likeUri });
+          likeUri = null;
+          mine.liked = false;
+          paint();
+        } else {
+          likeUri = (await act({ action: "like", uri })).uri;
+          mine.liked = true;
+          paint();
+        }
+      } catch (err) {
+        like.setAttribute("aria-pressed", String(wasLiked));
+        mine.liked = wasLiked;
+        paint();
+        addMessage("error", `Could not ${wasLiked ? "unlike" : "like"}: ${err.message}`);
+      } finally {
+        liking = false;
+      }
+    });
+
+    // Ask what this person has already done to the post. Without it the Like
+    // button starts unpressed on a post you liked yesterday, and pressing it
+    // writes a *second* like record — both are stored, and undoing means
+    // deleting them one at a time.
+    act({ action: "state", uri }).then((s) => {
+      server.counts = s.counts;
+      server.liked = !!s.like;
+      server.reposted = !!s.repost;
+      // Start from what is already true. Without this the Like button shows
+      // unpressed on a post liked yesterday, and pressing it writes a *second*
+      // like record — both get stored, and undoing means deleting each in turn.
+      if (s.like) { likeUri = s.like; mine.liked = true; like.setAttribute("aria-pressed", "true"); }
+      if (s.repost) { mine.reposted = true; alreadyReposted = true; }
+      relabel();
+      paint();
+    }).catch(() => { /* the buttons still work; they just start blank */ });
+
+    const open = (name, focus) => {
+      for (const [key, panel] of Object.entries(panels)) {
+        const show = key === name;
+        panel.wrap.hidden = !show;
+        tabs[key].setAttribute("aria-pressed", String(show));
+        // scrollHeight is 0 while hidden, so the textarea can only be sized
+        // once it is on screen.
+        if (show) panel.update();
+      }
+      if (focus && name) panels[name].area.focus();
+    };
+    for (const name of Object.keys(tabs)) {
+      tabs[name].addEventListener("click", () => {
+        open(tabs[name].getAttribute("aria-pressed") === "true" ? null : name, true);
+      });
+    }
+
+    wrap.append(
+      actionRow(tabs.reply, tabs.repost, like),
+      panels.reply.wrap,
+      panels.repost.wrap,
+    );
+    open(mode === "reply" || mode === "repost" ? mode : null, false);
+    return wrap;
+  }
+
+  // An account, with the one action the product ends in attached to it.
+  // <atproto-profile> draws the card (it takes a handle, DID or at-uri as
+  // `src`; the tool hands it a DID) and the follow row below it is ours,
+  // because a button that acts on the reader's behalf could never be the
+  // library's. Same no-re-parenting rule as <atproto-post>: it aborts its fetch
+  // on disconnect and never restarts, so the card is built once and cached.
+  // A proposed post, editable in place. Recognisably a Bluesky post, visibly a
+  // draft: a reply can hold live posts to engage with *and* proposals that do
+  // not exist yet, and mistaking the second for the first is the one confusion
+  // that must not happen. Hence the dashed edge and the label, which the real
+  // thing never has.
+  function renderDraft(d, messageID) {
+    const box = document.createElement("div");
+    box.className = "draft";
+
+    const label = document.createElement("span");
+    label.className = "draft-badge";
+    label.textContent = "Draft";
+    box.appendChild(label);
+
+    const { wrap, foot, area } = composeBox({ text: d.text || "", limit: d.limit || 300 });
+
+    // A backlink to the conversation this came out of. Ticking it publishes
+    // that turn, because a link to a withheld one lands on "reply not
+    // published" — a promise of context that delivers a placeholder.
+    const linkRow = document.createElement("div");
+    linkRow.className = "draft-link";
+    const linkBox = document.createElement("input");
+    linkBox.type = "checkbox";
+    linkBox.id = "link-" + Math.random().toString(36).slice(2, 9);
+    const linkLabel = document.createElement("label");
+    linkLabel.htmlFor = linkBox.id;
+    linkLabel.textContent = "Link back to this conversation";
+    const linkNote = document.createElement("span");
+    linkBox.addEventListener("change", () => {
+      linkNote.textContent = linkBox.checked
+        ? " — publishes the turn it links to" : "";
+    });
+    linkRow.append(linkBox, linkLabel, linkNote);
+    // Nothing to point at if we do not know which turn this came from — better
+    // no checkbox than one that silently does nothing.
+    if (!messageID) linkRow.hidden = true;
+    // Sends what is in the box, not what the agent proposed. The two differ the
+    // moment anybody edits, and the edited one is the one they read.
+    foot.appendChild(sendAction("Post", "Posted", async () => {
+      const made = await act({
+        action: "post",
+        text: area.value,
+        origin: { session: sessionID },
+        // The turn this card belongs to. Resolved when pressed rather than at
+        // render time: the message id only exists once the turn has finished.
+        ...(linkBox.checked && messageID
+          ? { backlink: { session: sessionID, message: messageID } }
+          : {}),
+      });
+      showPosted("posted", made, area.value);
+    }));
+    box.appendChild(wrap);
+    box.appendChild(linkRow);
+
+    return box;
+  }
+
+  function renderActor(a) {
+    if (!a.did) return null;
+    const box = document.createElement("div");
+    box.className = "actor";
+
+    const card = document.createElement("atproto-profile");
+    card.setAttribute("src", a.did);
+    box.appendChild(card);
+
+    // The card's own stat row is hidden in CSS and replaced with this one. The
+    // library derives its counts by walking records and comes out badly low —
+    // 12.7M followers against the appview's 34.3M for @bsky.app, and "500+
+    // posts" where the real figure is 802. Whether an account is worth the
+    // creator's time is partly a question about its size, so the number on
+    // screen has to be the real one; these come from getProfile.
+    const stats = [
+      [a.followers, "followers"],
+      [a.following, "following"],
+      [a.post_count, "posts"],
+    ].filter(([n]) => typeof n === "number");
+    if (stats.length) {
+      const line = document.createElement("div");
+      line.className = "actor-stats";
+      line.textContent = stats
+        .map(([n, label]) => `${n.toLocaleString()} ${label}`)
+        .join(" · ");
+      box.appendChild(line);
+    }
+
+    // Follow is a toggle, not a send: it can be undone, and the card has to say
+    // which state it is in before anybody presses it. A button reading "Follow"
+    // on somebody you already follow writes a *second* follow record when
+    // pressed — Bluesky shows one relationship either way, so nothing looks
+    // wrong; you simply have two records and unfollowing removes one.
+    const follow = document.createElement("button");
+    follow.className = "card-action";
+    follow.type = "button";
+    follow.textContent = "Follow";
+    follow.disabled = true;               // until we know, pressing it is a guess
+    let followUri = null;
+    let busy = false;
+
+    const paintFollow = () => {
+      follow.textContent = followUri ? "Following" : "Follow";
+      follow.disabled = false;
+    };
+
+    act({ action: "actor-state", actor: a.did })
+      .then((st) => { followUri = st.following || null; paintFollow(); })
+      .catch(() => { follow.title = "Could not check whether you follow this account"; });
+
+    follow.addEventListener("click", async () => {
+      if (busy) return;
+      busy = true;
+      const was = followUri;
+      follow.disabled = true;
+      follow.textContent = was ? "Unfollowing…" : "Following…";
+      try {
+        if (was) {
+          await act({ action: "undo", uri: was });
+          followUri = null;
+        } else {
+          followUri = (await act({ action: "follow", actor: a.did })).uri;
+        }
+      } catch (err) {
+        followUri = was;
+        addMessage("error", `Could not ${was ? "unfollow" : "follow"}: ${err.message}`);
+      } finally {
+        busy = false;
+        paintFollow();
+      }
+    });
+
+    box.appendChild(actionRow(follow));
+
+    return box;
+  }
+
+  // Graphemes, because that is what Bluesky's 300 limit counts — not
+  // characters and not bytes. Intl.Segmenter is exact where the Python side
+  // (tools/graphemes.py) approximates, so the number moves as the creator types
+  // and the two only ever disagree on scripts neither product writes in.
+  const SEGMENTER = typeof Intl !== "undefined" && Intl.Segmenter
+    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    : null;
+
+  function countGraphemes(text) {
+    if (SEGMENTER) return [...SEGMENTER.segment(text)].length;
+    return [...text].length; // code points: wrong for flags and ZWJ emoji, but closer than .length
+  }
+
+  // A box you write a post into, with the counter that decides whether it can
+  // be sent at all. Shared by a post card's reply and repost modes, because
+  // both are the same thing — text on its way to becoming a record, under the
+  // same 300-grapheme limit. Callers append their own buttons to `foot`, since
+  // what the text is *for* differs and the box doesn't need to know.
+  function composeBox({ text = "", limit = 300, placeholder = "" }) {
+    const area = document.createElement("textarea");
+    area.className = "compose-text";
+    area.value = text;
+    area.placeholder = placeholder;
+    area.spellcheck = true;
+
+    const foot = document.createElement("div");
+    foot.className = "compose-foot";
+    const counter = document.createElement("span");
+    counter.className = "compose-count";
+    foot.appendChild(counter);
+
+    // A wrapper so a caller holding several boxes can show and hide them whole.
+    // A caller that needs something between the text and the buttons can ignore
+    // it and place `area` and `foot` itself.
+    const wrap = document.createElement("div");
+    wrap.className = "compose";
+    wrap.append(area, foot);
+
+    const update = () => {
+      const n = countGraphemes(area.value);
+      counter.textContent = `${n} / ${limit}`;
+      // Over the limit shows on the counter alone while the buttons are inert.
+      // When they go live they have to disable on this too — nothing above 300
+      // can be published at all.
+      counter.classList.toggle("over", n > limit);
+      // Grow with the text: a reply you can only see four lines of is a reply
+      // you cannot actually review.
+      area.style.height = "auto";
+      area.style.height = `${area.scrollHeight}px`;
+    };
+    area.addEventListener("input", update);
+    // scrollHeight is 0 until the element is laid out, so size it once it is.
+    requestAnimationFrame(update);
+    update();
+
+    return { wrap, area, foot, counter, update };
+  }
+
+  // Everything the assistant emits — answer text, reasoning, tool calls — is
+  // ONE ordered list, rendered in the order it happened. It used to be two
+  // separate lists concatenated as "every tool call, then all the text", which
+  // put tools above answer text that came before them and threw the
+  // interleaving away entirely.
+  //
+  // A part's kind isn't known when its first delta arrives (deltas carry only
+  // `field: "text"`, which reasoning parts use too), so a block starts as text
+  // and is reclassified when message.part.updated reveals what it is.
+  function block(id, kind) {
+    if (!(id in pending.blocks)) {
+      pending.blocks[id] = { kind, text: "" };
+      pending.blockOrder.push(id);
+    }
+    return pending.blocks[id];
+  }
+
+  // A reasoning block may open with a `[[label]]` saying what that step is
+  // about — see AGENTS.md. Use it when it's there, and fall back to the first
+  // line when it isn't: a model follows instructions in its *reasoning* channel
+  // far less reliably than in its answer, and every box still needs a usable
+  // heading. A turn produces one box per step, so identical summaries would
+  // make them impossible to tell apart when scanning.
+  // Label a collapsed box with the first line of its own reasoning. Asking the
+  // model for an explicit label was tried and dropped: instructions aimed at
+  // the reasoning channel are ignored outright, and moving them to the answer
+  // channel produced labels that read worse than the reasoning's own opening.
+  //
+  // Long labels are cut without an ellipsis and faded out instead — see the
+  // `.faded` rule, which masks the tail to transparent so the text dissolves
+  // into the background rather than ending in a dot-dot-dot.
+  const LABEL_MAX = 64;
+
+  function thinkingHeading(text) {
+    const first = ((text || "").split("\n").find((l) => l.trim()) || "")
+      .trim()
+      .replace(/^[#>*\-\s]+/, "");
+    if (!first) return { text: "thinking", faded: false };
+    return first.length > LABEL_MAX
+      ? { text: first.slice(0, LABEL_MAX), faded: true }
+      : { text: first, faded: false };
+  }
+
+  // Elements are cached on the block and reused, so re-rendering reorders
+  // rather than rebuilds: an open thinking box stays open across the whole
+  // stream and the final pass, and streamed text doesn't flicker.
+  function blockElement(b, final) {
+    if (b.kind === "tool") {
+      // A completed render call shows as its cards instead of a trace line.
+      // Built once and cached: <atproto-post> fetches the post itself, so
+      // rebuilding it on every frame of the turn would refetch and flicker.
+      if (b.render) {
+        if (b.cardEl === undefined) {
+          // A renderer that throws must cost its own card and nothing else.
+          // Everything in the turn is drawn from one loop, so an exception here
+          // used to blank every block after it — the reply text included.
+          try {
+            b.cardEl = renderElement(b.render, b.messageID);
+          } catch (err) {
+            console.error("render failed", b.render, err);
+            b.cardEl = null; // falls through to the ordinary trace line
+          }
+        }
+        if (b.cardEl) return b.cardEl;
+      }
+      b.el = b.el || Object.assign(document.createElement("div"), { className: "steps" });
+      b.el.textContent = toolLine(b);
+      return b.el;
+    }
+    if (b.kind === "reasoning") {
+      if (!b.el) {
+        b.el = document.createElement("details");
+        b.el.className = "thinking";
+        b.el.appendChild(document.createElement("summary"))
+          .appendChild(document.createElement("span"));
+        b.el.appendChild(document.createElement("div"));
+      }
+      const heading = thinkingHeading(b.text);
+      b.el.firstChild.firstChild.textContent = heading.text;
+      b.el.firstChild.firstChild.classList.toggle("faded", heading.faded);
+      b.el.lastChild.textContent = b.text.trim();
+      return b.el;
+    }
+    b.el = b.el || document.createElement("div");
+    // Markdown live, not just at the end. The bubble is pre-wrap, so an
+    // untouched leading newline from the model shows up as a blank line under
+    // whatever block came before — trim it rather than styling around it.
+    //
+    // Covered spans are substituted into the source *before* it is parsed, not
+    // painted over the result: what is rendered is then exactly what the record
+    // says, bars and all, and there is no path where the page shows a bar and
+    // publishes the words.
+    const covered = applyRedactions(b.text.replace(/^\s+/, ""), redactions[b.messageID]);
+    b.shown = covered.text;
+    b.el.innerHTML = DOMPurify.sanitize(marked.parse(covered.text, { breaks: true }));
+    // What the selection handler needs to turn a range back into source text,
+    // and what a bar needs to know which span it stands for.
+    blockOf.set(b.el, b);
+    b.el.dataset.mid = b.messageID || "";
+    if (covered.order.length) {
+      paintRedactions(b.el, (bar, n) => {
+        bar.title = "redacted — press to put the words back";
+        bar.addEventListener("click", () => {
+          const span = (redactions[b.messageID] || [])[covered.order[n]];
+          if (span) setRedaction(b.messageID, span, true);
+        });
+      });
+    }
+    return b.el;
+  }
+
+  // ---- redaction ------------------------------------------------------------
+  //
+  // A model will say something wrong about a named person, and the choice
+  // between publishing that and withholding the whole answer is a bad one. So a
+  // span can be covered: select it, press Redact, and the words stop being part
+  // of what this turn publishes — now, if the turn is already out.
+  //
+  // The page never sends replacement text, only the words to remove. A page
+  // that could send text to publish could put sentences in the model's mouth
+  // under its own label; a page that can only delete cannot.
+
+  // The same three blocks the server writes. Fixed width: a bar as wide as the
+  // words says how long the name was.
+  const MARK = "███";
+  // Which block object drew an element, so a DOM range can be read back as an
+  // offset into the source the model actually produced.
+  const blockOf = new WeakMap();
+
+  // Source text with each covered span replaced, plus which span produced each
+  // bar in the order the bars appear — that is what lets one be pressed to put
+  // its words back.
+  function applyRedactions(text, spans) {
+    if (!spans || !spans.length) return { text, order: [] };
+    const hits = [];
+    spans.forEach((span, i) => {
+      if (!span) return;
+      for (let at = text.indexOf(span); at !== -1; at = text.indexOf(span, at + span.length)) {
+        hits.push({ at, end: at + span.length, i });
+      }
+    });
+    // Earliest first, longest first on a tie: one span inside another leaves a
+    // single bar, not a bar with a fragment of the shorter one beside it.
+    hits.sort((a, b) => a.at - b.at || b.end - a.end);
+    let out = "", cursor = 0;
+    const order = [];
+    for (const hit of hits) {
+      if (hit.at < cursor) continue;   // already inside a bar
+      out += text.slice(cursor, hit.at) + MARK;
+      order.push(hit.i);
+      cursor = hit.end;
+    }
+    return { text: out + text.slice(cursor), order };
+  }
+
+  // Every text node of an element with its running offset, so a position in the
+  // DOM becomes a number and both ends of a selection are measured the same way.
+  function textIndex(el) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const parts = [];
+    let total = 0, node;
+    while ((node = walker.nextNode())) {
+      parts.push({ node, start: total });
+      total += node.textContent.length;
+    }
+    return { parts, text: parts.map((p) => p.node.textContent).join("") };
+  }
+
+  // Where each character on screen came from in the source.
+  //
+  // Rendered text is the source minus the markdown that produced it: every
+  // visible character is a source character, in order, with the syntax skipped.
+  // So walking both and stepping over what did not survive gives the source
+  // position of anything selected — without re-parsing, and without asking
+  // marked for positions it does not report.
+  //
+  // With one exception: whitespace the rendering added. marked separates the
+  // elements it emits with newlines, so `</p>\n<ul>` puts a newline on screen
+  // that the source never had — and the one after the last element has nothing
+  // after it to align against at all. Markdown adds whitespace and drops
+  // syntax; it never invents a word. So an unmatched space is stepped over and
+  // an unmatched character is a refusal.
+  //
+  // Refusal, because there is no near-enough answer here: a span off by a few
+  // characters redacts the wrong words and leaves the ones that were meant to
+  // go.
+  function sourcePositions(source, rendered) {
+    const map = new Array(rendered.length);
+    let j = 0;
+    for (let i = 0; i < rendered.length; i++) {
+      const c = rendered[i];
+      if (/\s/.test(c)) {
+        // Whitespace on screen is the source's if the source has some right
+        // here, and the renderer's own layout if it does not. Never hunt
+        // forward for it: `</li>\n<li>` draws a break between two list items
+        // that the source writes as one newline, and looking ahead for a second
+        // one steps straight over the words being selected.
+        map[i] = j;
+        if (j < source.length && /\s/.test(source[j])) j++;
+        continue;
+      }
+      let k = j;
+      while (k < source.length && source[k] !== c) k++;
+      if (k >= source.length) return null;
+      map[i] = k;
+      j = k + 1;
+    }
+    return map;
+  }
+
+  // The source words a range covers inside one block, as pieces.
+  //
+  // Pieces, because a selection may run across a bar that is already there. The
+  // parts between bars are the new words, and each is a literal run of the
+  // source: substitution only changed what it replaced, so anything without a
+  // bar in it is untouched source.
+  function selectedSource(el, b, range) {
+    const index = textIndex(el);
+    let from = null, to = null;
+    for (const p of index.parts) {
+      if (!range.intersectsNode(p.node)) continue;
+      const s = range.startContainer === p.node ? range.startOffset : 0;
+      const e = range.endContainer === p.node ? range.endOffset : p.node.textContent.length;
+      if (e <= s) continue;   // touched at a boundary, nothing of it selected
+      if (from === null) from = p.start + s;
+      to = p.start + e;
+    }
+    if (from === null || to <= from) return [];
+    // Shrink to the words. A selection that ends on a line break would
+    // otherwise be measured to a character the rendering invented, and the
+    // pieces get trimmed at the end regardless.
+    while (from < to && /\s/.test(index.text[from])) from++;
+    while (to > from && /\s/.test(index.text[to - 1])) to--;
+    if (to <= from) return [];
+    // Only as far as the selection reaches: nothing after it can affect where
+    // it starts and ends, and the tail is where the rendering's own whitespace
+    // collects.
+    const map = sourcePositions(b.shown || "", index.text.slice(0, to));
+    if (!map) return null;
+    return b.shown.slice(map[from], map[to - 1] + 1)
+      .split(/█+/).map((piece) => piece.trim()).filter(Boolean);
+  }
+
+  const redactBtn = document.getElementById("redact-btn");
+  let redactRange = null;
+
+  function hideRedact() {
+    redactBtn.hidden = true;
+    redactRange = null;
+  }
+
+  // Blocks a range touches that can be redacted at all: the model's own words.
+  // A tool trace is not published as text and a thinking box is not published
+  // at all, so neither is registered here; the user's own turns are theirs to
+  // withhold whole.
+  function redactable(range) {
+    const out = [];
+    for (const el of log.querySelectorAll(".msg.assistant [data-mid]")) {
+      const b = blockOf.get(el);
+      if (!b || !b.messageID || !range.intersectsNode(el)) continue;
+      out.push({ b, el });
+    }
+    return out;
+  }
+
+  document.addEventListener("selectionchange", () => {
+    const sel = document.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return hideRedact();
+    const range = sel.getRangeAt(0);
+    if (!redactable(range).length) return hideRedact();
+    redactRange = range.cloneRange();
+    const rect = range.getBoundingClientRect();
+    redactBtn.hidden = false;
+    redactBtn.style.left =
+      `${Math.min(Math.max(rect.left + rect.width / 2, 60), window.innerWidth - 60)}px`;
+    redactBtn.style.top = `${Math.max(rect.top - 8, 44)}px`;
+  });
+  // The log scrolls under a fixed button, so a stale one would point at words
+  // it no longer sits over.
+  log.addEventListener("scroll", hideRedact);
+
+  // Pressing must not take the selection away before it has been read.
+  redactBtn.addEventListener("mousedown", (e) => e.preventDefault());
+  redactBtn.addEventListener("click", async () => {
+    const range = redactRange;
+    const blocks = range ? redactable(range) : [];
+    hideRedact();
+    const jobs = [];
+    for (const { b, el } of blocks) {
+      const pieces = selectedSource(el, b, range);
+      if (pieces === null) {
+        addMessage("error", "Could not tell which words those are — select them "
+                          + "again, whole words, and press Redact.");
+        return;
+      }
+      for (const piece of pieces) jobs.push([b.messageID, piece]);
+    }
+    document.getSelection().removeAllRanges();
+    for (const [mid, span] of jobs) await setRedaction(mid, span, false);
+  });
+
+  // The server decides, then the page redraws. Nothing is covered optimistically
+  // — a bar the server did not accept would say the words are out of the record
+  // when they are still in it.
+  async function setRedaction(mid, span, remove) {
+    if (!sessionID) return;
+    try {
+      const out = await fetch(`${SERVER}/redact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: sessionID, message: mid, text: span, remove }),
+      }).then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || `${r.status}`);
+        return j;
+      });
+      redactions = out.redacted || {};
+      redrawMessage(mid);
+      if (out.failed && out.failed.length) {
+        addMessage("error", "Covered here, but the record was not rewritten: "
+                          + out.failed[0].error);
+      }
+    } catch (err) {
+      addMessage("error", `Could not redact: ${err.message}`);
+    }
+  }
+
+  function redrawMessage(mid) {
+    for (const el of log.querySelectorAll(`[data-mid="${CSS.escape(mid)}"]`)) {
+      const b = blockOf.get(el);
+      if (!b) continue;
+      // Cards drawn from a `[3]` in the prose are part of what the re-render
+      // throws away, so put them back — and only where there were some, so a
+      // redaction never adds a card the message did not already have.
+      const hadCards = !!el.querySelector("atproto-post");
+      blockElement(b, true);
+      if (!hadCards) continue;
+      const bubble = el.closest(".bubble") || el;
+      embedPostRefs(el, new Set([...bubble.querySelectorAll("atproto-post")]
+        .map((p) => p.getAttribute("src"))));
+    }
+  }
+
+  // Deltas arrive far faster than the screen refreshes, and each one now
+  // re-parses markdown. Coalescing streamed renders onto an animation frame
+  // caps that at the display rate — the text still appears live, without
+  // parsing the same growing string a dozen times per visible update. The
+  // final render runs immediately: it must not be dropped or deferred.
+  let renderQueued = false;
+
+  function renderPending(final = false) {
+    if (!pending) return;
+    if (!final) {
+      if (renderQueued) return;
+      renderQueued = true;
+      requestAnimationFrame(() => {
+        renderQueued = false;
+        if (pending) drawPending(false);
+      });
+      return;
+    }
+    drawPending(true);
+  }
+
+  function drawPending(final) {
+    const wasPinned = isPinnedToBottom();
+    const children = [];
+    // What the tool calls in this turn have already drawn. The prose scanner
+    // below skips these, so a reply that both calls show-post and mentions
+    // `[3]` gets one card, not two — which is what lets the old prose path stay
+    // as a fallback without the model needing a rule about it.
+    const drawn = new Set();
+    for (const id of pending.blockOrder) {
+      const b = pending.blocks[id];
+      // Cards a tool asked for are content, not trace — they stay visible
+      // whether or not the step trace is switched on.
+      if (b.kind === "tool" && !b.render && !SETTINGS.showSteps) continue;
+      if (b.kind === "reasoning" && !SETTINGS.showReasoning) continue;
+      if (b.kind === "text" && !b.text.trim()) continue;
+      // Scoped to the kind that actually has post URIs. Reading `.posts` off
+      // any payload cost a whole turn once: the actor card carries a post
+      // *count* under that name, and `for (const p of 5039)` threw here and
+      // took every block after it down with it. Payload fields only mean
+      // something within their own kind.
+      if (b.kind === "tool" && b.cardEl && b.render.kind === "posts") {
+        for (const post of b.render.posts || []) if (post.uri) drawn.add(post.uri);
+      }
+      children.push(blockElement(b, final));
+    }
+    if (children.length) {
+      // Patch the child list in place rather than replaceChildren(). A card is
+      // created the moment its tool call completes, so it sits in the bubble
+      // for the rest of the turn — and <atproto-post> aborts its in-flight
+      // fetch when it is disconnected and never restarts it. replaceChildren
+      // detaches and reattaches *every* child on *every* frame, which left the
+      // cards stuck in their loading skeleton forever. (The old prose-scraped
+      // embeds never hit this: they were only ever created on the final render,
+      // after the last replaceChildren.)
+      const bubble = pending.bubble;
+      for (let i = 0; i < children.length; i++) {
+        const at = bubble.childNodes[i];
+        if (at === children[i]) continue;
+        if (at) bubble.insertBefore(children[i], at);
+        else bubble.appendChild(children[i]);
+      }
+      while (bubble.childNodes.length > children.length) bubble.lastChild.remove();
+    } else {
+      const elapsed = SETTINGS.showElapsedTime ? ` (${Math.round((Date.now() - pending.startTime) / 1000)}s)` : "";
+      pending.bubble.textContent = `…${elapsed}`;
+    }
+    // Post cards are embedded once, over the whole bubble, so the same post
+    // referenced from two text blocks still renders a single card.
+    if (final && embedPostRefs(pending.bubble, drawn)) pending.wrap.classList.add("has-embed");
+    scrollToBottomIfPinned(wasPinned);
+  }
+
+  function addLabel(text) {
+    if (pending.labelAdded) return;
+    const label = document.createElement("div");
+    label.className = "label";
+    label.textContent = text;
+    pending.wrap.appendChild(label);
+    pending.labelAdded = true;
+  }
+
+  // Tool output follows the convention documented in AGENTS.md:
+  // `[3] @handle (N likes) at://... — preview`. Scraping that line lets the
+  // agent's reply just say `[3]` — short, and it can't mangle the URI.
+  const INDEX_REF_RE = /\[(\d+)\][^\n]*?(at:\/\/\S+)/g;
+
+  function scanForPostIndices(output) {
+    for (const [, idx, uriRaw] of output.matchAll(INDEX_REF_RE)) {
+      postIndex[idx] = uriRaw.replace(/[.,!?;:)\]}'"]+$/, "");
+    }
+  }
+
+  // Matches either an index (resolved via postIndex) or a raw at:// URI
+  // directly, in case the model includes one anyway.
+  //
+  // `#2443` is matched as well as `[2443]`. Told not to write `[N]`, this model
+  // started writing `#N` instead — it wants to label the thing it just showed,
+  // and forbidding one spelling only moves it to the next. Only a number that
+  // resolves to a post we actually drew is touched, and `(?<![\w#])` keeps
+  // `ig#3` (a creator item) out of it.
+  const POST_REF_RE = /\[(\d+)\]|(?<![\w#])#(\d+)|(at:\/\/[^\s<>"']+)/g;
+
+  function embedPostRefs(root, alreadyDrawn) {
+    let hasEmbed = false;
+    // Resolved URIs already embedded in this message. The agent often pastes
+    // whole tool-output lines that contain BOTH the [N] index and the raw
+    // at:// URI for the same post — without this we'd render two identical
+    // cards. Dedupe per message so each post shows once. Posts a show-post
+    // call already drew are handled separately below — they keep their text.
+    const seen = new Set();
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        // `.steps` and `.thinking` are excluded: raw tool output routinely
+        // contains `[N]` lines, and a trace is a trace — it should stay text,
+        // not sprout post cards.
+        return node.parentElement && node.parentElement.closest("code, pre, .steps, .thinking")
+          ? NodeFilter.FILTER_REJECT
+          : NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const textNodes = [];
+    let node;
+    while ((node = walker.nextNode())) textNodes.push(node);
+
+    for (const textNode of textNodes) {
+      const text = textNode.textContent;
+      // Groups: 1 = `[N]`, 2 = `#N`, 3 = a raw at:// URI.
+      const idxOf = (m) => (m[1] !== undefined ? m[1] : m[2]);
+      const matches = [...text.matchAll(POST_REF_RE)].filter(
+        (m) => m[3] !== undefined || postIndex[idxOf(m)] !== undefined,
+      );
+      if (matches.length === 0) continue;
+
+      const frag = document.createDocumentFragment();
+      let lastIndex = 0;
+      for (const m of matches) {
+        let uri, trailing = "";
+        if (m[3] !== undefined) {
+          [, uri, trailing] = m[3].match(/^(.*?)([.,!?;:)\]}'"]*)$/s);
+        } else {
+          uri = postIndex[idxOf(m)];
+        }
+        if (m.index > lastIndex) frag.appendChild(document.createTextNode(text.slice(lastIndex, m.index)));
+        if (alreadyDrawn && alreadyDrawn.has(uri)) {
+          // The card is on screen already, so this is a leftover label in the
+          // prose: a number the reader has never seen and cannot look up.
+          // Substituted rather than deleted, because the model writes it as the
+          // subject of the sentence ("[2408] stood out for…") and cutting it
+          // leaves a fragment. This is only a patch over the real problem —
+          // the note belongs immediately after the call that drew the card,
+          // where it needs no subject at all.
+          frag.appendChild(document.createTextNode("This post"));
+        } else if (seen.has(uri)) {
+          // Same post already shown in this message — drop this duplicate
+          // token (also removes the raw at:// URL clutter) instead of
+          // rendering a second identical card.
+          if (trailing) frag.appendChild(document.createTextNode(trailing));
+        } else {
+          seen.add(uri);
+          const el = document.createElement("atproto-post");
+          el.setAttribute("src", uri);
+          frag.appendChild(el);
+          if (trailing) frag.appendChild(document.createTextNode(trailing));
+          hasEmbed = true;
+        }
+        lastIndex = m.index + m[0].length;
+      }
+      if (lastIndex < text.length) frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+      textNode.replaceWith(frag);
+    }
+    return hasEmbed;
+  }
+
+  function finalizePending() {
+    if (!pending) return;
+    clearInterval(pending.tickTimer);
+    const { resolve } = pending;
+    // The bubble knows which assistant messages went into it, so say so rather
+    // than letting anything work it out later.
+    if (pending.wrap && pending.assistantIDs.size) {
+      pending.wrap.dataset.mids = [...pending.assistantIDs].join(",");
+    }
+    renderPending(true);
+    const finished = pending;
+    pending = null;
+    if (resolve) resolve();
+    syncTurns();
+  }
+
+  // opencode occasionally never starts a turn at all after a follow-up
+  // message — no assistant message, no error event, nothing — leaving the
+  // UI stuck on "…" forever. Abort and surface it instead of hanging.
+  function timeoutPending() {
+    if (!pending) return;
+    clearInterval(pending.tickTimer);
+    const { wrap, resolve } = pending;
+    wrap.classList.add("error");
+    // Appended as its own block so the trace collected so far survives — the
+    // steps leading up to a stall are the whole reason to look at it.
+    block("timeout", "text").text =
+      `\nError: no activity for ${SETTINGS.idleTimeoutSeconds}s — aborted (the turn stalled, not just slow). Try sending it again.`;
+    renderPending(true);
+    fetch(`${SERVER}/session/${sessionID}/abort`, { method: "POST" }).catch(() => {});
+    pending = null;
+    if (resolve) resolve();
+  }
+
+  // Single persistent SSE connection for the page's lifetime; events are
+  // matched against `sessionID` and the in-flight `pending` reply, so
+  // switching sessions ("New chat") just changes what's listened for.
+  const events = new EventSource(`${SERVER}/event`);
+  events.onmessage = (e) => {
+    let evt;
+    try {
+      evt = JSON.parse(e.data);
+    } catch {
+      return;
+    }
+    if (SETTINGS.logEventsToConsole) console.debug("[opencode]", evt.type, evt.properties);
+    if (!pending) return;
+    const props = evt.properties || {};
+    if (props.sessionID !== sessionID) return;
+    // Any event for this turn counts as activity — the idle-timeout clock
+    // (below) resets here, so a long multi-step turn that keeps streaming
+    // tool calls and text stays alive; only a genuine stall trips it.
+    pending.lastActivity = Date.now();
+
+    if (evt.type === "session.idle") {
+      finalizePending();
+      return;
+    }
+
+    if (evt.type === "message.updated") {
+      const info = props.info;
+      if (info.role !== "assistant") return;
+      pending.assistantIDs.add(info.id);
+      if (info.providerID || info.modelID) addLabel(`${info.providerID}/${info.modelID}`);
+      if (info.error) {
+        pending.wrap.classList.add("error");
+        block("error", "text").text = `\n[error: ${info.error.name || JSON.stringify(info.error)}]`;
+        finalizePending();
+      }
+      return;
+    }
+
+    if (evt.type === "message.part.delta") {
+      if (!pending.assistantIDs.has(props.messageID)) return;
+      if (props.field !== "text") return;
+      const b = block(props.partID, "text");
+      // Which turn's words these are — a redaction is stored against the
+      // message, and the bubble may hold several.
+      b.messageID = props.messageID;
+      b.text += props.delta || "";
+      renderPending();
+      return;
+    }
+
+    if (evt.type === "message.part.updated") {
+      const part = props.part;
+      if (!pending.assistantIDs.has(part.messageID)) return;
+      if (part.type === "text" || part.type === "reasoning") {
+        const b = block(part.id, part.type);
+        b.kind = part.type;  // a delta may have created it as text before we knew
+        b.messageID = part.messageID;
+        b.text = part.text || "";
+        renderPending();
+      } else if (part.type === "tool") {
+        // Keyed by callID (prefixed, so it can't collide with a part id) —
+        // the same call is updated repeatedly as it runs and completes.
+        const b = block(`tool:${part.callID}`, "tool");
+        // Which turn drew this. A draft card offers to link back to the turn
+        // that proposed it, and only the event knows which that is.
+        b.messageID = part.messageID;
+        b.tool = part.tool;
+        b.status = part.state && part.state.status;
+        if (part.state && part.state.input) b.inputSummary = summarizeInput(part.state.input);
+        if (part.state && part.state.status === "error") {
+          b.error = typeof part.state.error === "string"
+            ? part.state.error
+            : JSON.stringify(part.state.error);
+        }
+        if (part.state && part.state.status === "completed" && part.state.output) {
+          scanForPostIndices(part.state.output);
+          b.render = parseRender(part.state.output);
+          b.outputPreview = part.state.output.slice(0, SETTINGS.toolOutputPreviewChars);
+        }
+        renderPending();
+      }
+    }
+  };
+
+  async function sendMessage(text) {
+    addMessage("user", text);
+    setBusy(true);
+    const bubble = addMessage("assistant", "…");
+
+    pending = {
+      // Message IDs of the assistant messages this turn produces. A prompt
+      // can span several assistant messages (one per tool-call step, then a
+      // final text one), and the user's own echoed message arrives as parts
+      // too — so we only render parts whose messageID is in this set.
+      assistantIDs: new Set(),
+      bubble,
+      wrap: bubble.parentElement,
+      // One ordered list of everything the assistant emits — text, reasoning
+      // and tool calls together, in arrival order. See block().
+      blockOrder: [],
+      blocks: {},
+      startTime: Date.now(),
+      lastActivity: Date.now(),
+      tickTimer: null,
+      labelAdded: false,
+      resolve: null,
+    };
+    // Keeps the elapsed-time readout moving even when no events arrive at
+    // all — the difference between "still working" and "actually stuck" —
+    // and gives up only after idleTimeoutSeconds of *no activity at all*
+    // (not total turn length), so a long multi-step turn that keeps
+    // streaming stays alive while a real hang still gets aborted.
+    pending.tickTimer = setInterval(() => {
+      if (!pending) return;
+      if ((Date.now() - pending.lastActivity) / 1000 > SETTINGS.idleTimeoutSeconds) {
+        timeoutPending();
+      } else {
+        renderPending();
+      }
+    }, 1000);
+
+    try {
+      // IMPORTANT: do NOT pass a client-generated `messageID` here. Doing so
+      // wedges the *second* and later turns of a session — opencode accepts
+      // the prompt (204) but silently never starts the assistant turn. Let
+      // the server assign the id (reproduced and confirmed against 1.16.2).
+      const body = { parts: [{ type: "text", text }], tools: chosenTools() };
+      // A product run uses its own agent, whose system prompt is the product's
+      // definition. Without this the session falls back to the generic agent,
+      // which knows the tools but not what it is supposed to produce.
+      // A product names its own agent — its system prompt is the product. Only
+      // when there is no product does the dropdown decide, so the two cannot
+      // quietly override each other.
+      const agent = PRODUCT || agentPick.value;
+      if (agent) body.agent = agent;
+      // The model the dropdown is showing, sent with the prompt rather than
+      // set anywhere. With nothing chosen the field is left off and
+      // opencode.json decides, which is still the answer for anyone who never
+      // touches the control.
+      //
+      // The header cannot end up crediting the wrong model for an answer even
+      // though the page names one: the label under each reply comes from
+      // opencode's own message, so if the server refused or substituted, that
+      // is what shows.
+      const model = chosenModel();
+      if (model) body.model = model;
+      const res = await fetch(`${SERVER}/session/${sessionID}/prompt_async`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText} ${body}`.trim());
+      }
+      // Response is 204 — the reply streams in via the /event SSE connection
+      // above and finalizePending() resolves this once it completes.
+      await new Promise((resolve) => {
+        pending.resolve = resolve;
+      });
+    } catch (err) {
+      clearInterval(pending.tickTimer);
+      pending.wrap.classList.add("error");
+      pending.bubble.textContent = `Error: ${err.message}`;
+      pending = null;
+    } finally {
+      setBusy(false);
+      input.focus();
+    }
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text || !sessionID) return;
+    input.value = "";
+    input.style.height = "auto";
+    sendMessage(text);
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = `${input.scrollHeight}px`;
+  });
+
+  newChatBtn.addEventListener("click", () => newSession());
+  stopBtn.addEventListener("click", () => stopPending());
+
+  // Wanted before the first prompt can be sent, not before the session exists,
+  // so it loads alongside rather than in front of it.
+  loadSetup();
+  loadSettings().then(newSession);
+</script>
+</body>
+</html>

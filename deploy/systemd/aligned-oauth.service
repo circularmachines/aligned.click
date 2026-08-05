@@ -1,0 +1,29 @@
+[Unit]
+# The OAuth sidecar. Nothing can read Bluesky without it — it holds every
+# session and signs every request — so it comes up first and everything that
+# needs it declares that it does.
+Description=aligned.click OAuth sidecar
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%SERVICE_USER%
+WorkingDirectory=%REPO%
+EnvironmentFile=-%REPO%/.env
+ExecStart=%NODE% %REPO%/oauth/server.mjs
+Restart=always
+RestartSec=3
+
+# private/oauth/sessions.json holds refresh tokens and the DPoP private key each
+# session is bound to. It is a credential for every account that has logged in,
+# which is the reason for the hardening below rather than a general principle.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- aligned.click — conversations published to atproto.
+     Copyright (C) 2026 Johan Lagerlöf.
+     Licensed under the GNU AGPL v3 or later. See LICENSE. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>aligned.click</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Served by GitHub Pages, which sets no headers of its own, so the policy
+     rides in the document. `script-src 'self'` is the point of it: every
+     library this page uses is in shared/, so nothing may be fetched from a
+     CDN even if a tag for one reappears. `connect-src https:` stays open
+     because reading atproto means talking to whichever PDS hosts the author. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src https:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+<link rel="canonical" href="chat.html">
+<link rel="stylesheet" href="shared/theme.css">
+<!-- A placeholder front door. The reader lives at chat.html, named the same as
+     in the repo it was built alongside so the two stay recognisably one thing.
+     When there is more here than the reader, this becomes a real landing page
+     and the hop goes away. -->
+<script>
+  // Carries the query string and the fragment across. A deep link into a single
+  // turn is `/?handle=…&session=…#m-…`, and a bare meta-refresh would drop both
+  // and land the reader on somebody's conversation list instead of the message
+  // they were sent. replace() rather than assign() so the hop leaves no entry
+  // in history: pressing back should go where the visitor came from.
+  location.replace("chat.html" + location.search + location.hash);
+</script>
+<noscript><meta http-equiv="refresh" content="0; url=chat.html"></noscript>
+<style>
+  body {
+    margin: 0; min-height: 100vh;
+    display: grid; place-items: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: #17181c; color: #9aa0a6;
+  }
+  a { color: #3b6fe0; }
+</style>
+</head>
+<body>
+  <p>Going to <a href="chat.html">the reader</a>…</p>
+</body>
+</html>

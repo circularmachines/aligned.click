@@ -1,0 +1,5 @@
+{
+  "name": "MiniMax M2.5",
+  "tools": "openai",
+  "limit": { "context": 200000, "output": 131072 }
+}

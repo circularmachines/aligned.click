@@ -1,0 +1,13 @@
+{
+  "name": "aligned-oauth-sidecar",
+  "private": true,
+  "type": "module",
+  "description": "atproto OAuth for the chat server. The only JavaScript in this project, and the only process that holds a user credential.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@atproto/oauth-client-node": "0.5.1"
+  }
+}

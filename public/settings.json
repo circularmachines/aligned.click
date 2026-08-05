@@ -1,0 +1,10 @@
+{
+  "showSteps": true,
+  "showToolInput": true,
+  "showToolOutput": false,
+  "showReasoning": true,
+  "showElapsedTime": true,
+  "logEventsToConsole": true,
+  "toolOutputPreviewChars": 600,
+  "idleTimeoutSeconds": 90
+}

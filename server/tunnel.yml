@@ -1,0 +1,40 @@
+# Cloudflare Tunnel: how aligned.click reaches this machine.
+#
+# Copy to ~/.cloudflared/config.yml, or run with
+# `cloudflared tunnel --config server/tunnel.yml run`.
+#
+# There is no inbound port. cloudflared holds an outbound connection to
+# Cloudflare and requests come back down it, which is why this works behind a
+# home router with nothing forwarded and survives the router changing its mind
+# about the WAN address.
+#
+# **The ingress points at the auth proxy, and must never point anywhere else.**
+# opencode on 4096 has no idea who anyone is: its sessions are global to the
+# process, `/session/<id>/…` answers for any id, and `/event` is one stream
+# carrying every user's messages. A tunnel to 4096 would publish all of that to
+# the internet with no login at all. The proxy on 8778 is the thing that
+# authenticates, checks session ownership and filters the event stream, so it is
+# the only sane origin here.
+#
+# The catch-all 404 at the end matters too: without it, a hostname pointed at
+# this tunnel by mistake would be served the proxy rather than refused.
+
+tunnel: aligned
+
+# No credentials-file. cloudflared resolves it from ~/.cloudflared using the
+# tunnel name and cert.pem, which keeps this file portable — the path is
+# different on every machine, and hardcoding one meant the config only worked
+# on the laptop it was written on.
+
+# Cloudflare terminates TLS at its edge; this hop is loopback on one machine.
+originRequest:
+  connectTimeout: 30s
+  # The agent streams for as long as a turn takes, and a turn can think for a
+  # while. Too low a value here looks exactly like the model going quiet.
+  noTLSVerify: false
+  disableChunkedEncoding: false
+
+ingress:
+  - hostname: aligned.click
+    service: http://127.0.0.1:8778
+  - service: http_status:404
