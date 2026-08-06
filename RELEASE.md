@@ -699,10 +699,20 @@ Mostly done. What remains is one DNS record and one path from the UI.
       removes them.** A live conversation cleans itself up the next time it
       syncs — the page sends what is live, which is nothing, and that is now a
       take-down — but an abandoned one never takes another turn, so nothing
-      would ever reach it. Eleven conversations, 43 records — cleared by hand
-      with a throwaway script over `publish.take_down`, deliberately not
-      committed: it runs once and is a trap afterwards, since it reads rkeys out
-      of `published.json` and that file has to be the one the live server keeps.
+      would ever reach it. **Done 2026-08-06**: 11 conversations, 32 withheld
+      turns and 11 session records, removed with a throwaway script over
+      `publish.take_down` run on the mini-PC. Deliberately not committed — it
+      runs once and is a trap afterwards, since it reads rkeys out of
+      `published.json`, and that file has to be the one the live server keeps.
+      Both machines' copies were byte-identical before and were resynced after.
+
+      Confirmed from the PDS rather than from the script's own count: 6 sessions
+      and 127 message records left, and **no session with zero published turns**.
+      The 21 withheld records that remain all sit inside conversations published
+      in part, which is where they belong. Two of those sessions (9 records, all
+      published) predate the UI publish path and are in no `published.json` —
+      written by `publish/chat.py`. Nothing here can take those down; they are
+      fully published, so nothing should.
 
       Two follow-ups, neither breaking: **the published schema still describes
       the old rule** — `withheld`'s description says every turn gets a record
