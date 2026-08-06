@@ -622,7 +622,7 @@ Mostly done. What remains is one DNS record and one path from the UI.
       mistake, and it was called too early here.
 - [x] **Publish from the UI — done, and verified end to end 2026-08-04.** A
       checkbox per turn, a button that publishes the ticked ones, and every turn
-      getting a record when it happens so a partly-published conversation has
+      of a published conversation getting a record so a partly-published one has
       visible holes rather than invisible ones. Posting, replying and quoting
       write their result into the conversation and attach it to that turn, so
       the published record carries a strongRef and the reader draws the post.
@@ -677,6 +677,40 @@ Mostly done. What remains is one DNS record and one path from the UI.
         every future write of that turn has to remove them again. Nothing
         publishes them, and a stored span that stops matching its turn
         withholds the turn rather than letting the words through.
+- [x] **An unpublished conversation has no records at all — changed 2026-08-06.**
+      It used to get a session record and a withheld record per turn the moment
+      the turn happened, on the argument that the shape of a conversation is
+      public and the words are by decision. Reversed. A withheld record carries
+      no words but it carries `createdAt`, and a repo full of them is when
+      somebody chats, how often, and how long their sessions run — a behavioural
+      profile of conversations they never chose to show anyone, with no way to
+      change their mind about having had them. That is a strange thing to attach
+      to a tool for private exploration, and it sat badly against "default
+      private" in §1.
+
+      **Within a published conversation nothing changes**: every turn still gets
+      a record, withheld ones included, because that is where the holes are the
+      point. The two rules meet at zero — unticking the last published turn takes
+      the whole conversation down rather than leaving the placeholders standing,
+      since a hole is only honest when it is in something. The button says
+      "Take this conversation down" when that is what pressing it will do.
+
+      **Records written under the old rule stay on the network until somebody
+      removes them.** A live conversation cleans itself up the next time it
+      syncs — the page sends what is live, which is nothing, and that is now a
+      take-down — but an abandoned one never takes another turn, so nothing
+      would ever reach it. Eleven conversations, 43 records — cleared by hand
+      with a throwaway script over `publish.take_down`, deliberately not
+      committed: it runs once and is a trap afterwards, since it reads rkeys out
+      of `published.json` and that file has to be the one the live server keeps.
+
+      Two follow-ups, neither breaking: **the published schema still describes
+      the old rule** — `withheld`'s description says every turn gets a record
+      when it happens — so `publish/lexicons.py --publish` wants re-running,
+      which needs the `ADMIN_DID` account logged into the sidecar. No field
+      changed type, was added or became required, so nothing already written
+      stops validating. And §1's "default private" is now true of the storage
+      and not only of the gesture.
 - [ ] **Consent is per-publish.** Publishing is irreversible in the way that
       matters: a delete removes your copy, not anyone else's. A user must see
       exactly what goes out. No default-on.

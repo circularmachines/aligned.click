@@ -752,9 +752,14 @@
   // Turns whose record already carries their words, as the server last saw it.
   let live = new Set();
 
-  // A record exists for every turn either way. This chooses whether its words
-  // go with it — the shape of the conversation is public regardless, which is
-  // the whole point and has to be said where somebody will read it.
+  // What a box means depends on whether anything here is published yet. In a
+  // conversation with nothing on the network it is a plain choice about this
+  // turn. Once any turn is out, an unticked one is a *withheld* turn — it gets
+  // a record saying it happened and that its words were held back, so the gaps
+  // in a published conversation are visible rather than silent. The label says
+  // which, because it is the difference between "not published" and "published
+  // as a hole" and nobody should have to infer it.
+  //
   // A box belongs to an element, and an element can stand for more than one
   // turn: a live reply is one bubble however many assistant messages opencode
   // split it into. So it governs a list of ids, and nothing counts elements
@@ -772,7 +777,9 @@
     state.className = "pub-state";
     const paint = () => {
       const isLive = ids.some((id) => live.has(id));
-      state.textContent = isLive ? "published" : box.checked ? "will publish" : "withheld";
+      state.textContent = isLive ? "published"
+        : box.checked ? "will publish"
+        : live.size ? "withheld" : "not published";
       state.classList.toggle("live", isLive);
     };
     label.appendChild(state);
@@ -799,20 +806,38 @@
     return turnIDs().filter((id) => !denied.has(id));
   }
 
+  // The button does two jobs, and says which one it is about to do. Unticking
+  // every turn of a published conversation means taking it down — the withheld
+  // records go too, because they mark the holes in something published and
+  // there is nothing left for them to be holes in. A button still reading
+  // "Publish" would be the last thing somebody read before that happened.
+  //
+  // Skipped while a press is in flight so it cannot overwrite that press's own
+  // result; the next repaint picks the label back up.
+  let publishing = false;
+  function paintPublishButton() {
+    if (publishing) return;
+    publishBtn.textContent = live.size && !chosen().length
+      ? "Take this conversation down"
+      : "Publish this conversation";
+  }
+
   function refreshPublishNote() {
     const ids = turnIDs();
     publishRow.hidden = ids.length === 0;
     disarmDelete();
     const pick = chosen().length;
     const held = ids.length - pick;
+    paintPublishButton();
     publishNote.textContent = ids.length
       ? `${ids.length} turn${ids.length === 1 ? "" : "s"} · ${pick} with words` +
-        (held ? ` · ${held} withheld` : "")
+        (held ? ` · ${held} ${live.size ? "withheld" : "not published"}` : "")
       : "";
   }
 
   async function publishConversation() {
     publishBtn.disabled = true;
+    publishing = true;
     const before = publishBtn.textContent;
     publishBtn.textContent = "Publishing…";
     try {
@@ -825,22 +850,32 @@
         if (!r.ok) throw new Error(j.error || `${r.status}`);
         return j;
       });
-      live = new Set(chosen());
+      // What the server says is out, not what we asked for. They agree when
+      // everything landed; when something did not, this is the difference
+      // between boxes that describe the network and boxes that describe the
+      // press. A take-down whose deletes half-failed still has records.
+      live = new Set(out.live || []);
       for (const id of turnIDs()) {
         const box = document.getElementById("pub-" + id);
         if (box) box.dispatchEvent(new Event("change"));
       }
       // A write that failed is not a withheld turn, and must not look like one.
+      // A take-down reports what it removed rather than what it wrote: "0
+      // record(s) written" is true of it and tells you nothing.
       publishBtn.textContent = out.failed && out.failed.length
         ? `${out.failed.length} did not land — press again`
-        : "Published";
-      publishNote.textContent =
-        `${out.published} of ${out.turns} with words · ${out.written} record(s) written`;
+        : out.removed ? "Taken down"
+        : out.published ? "Published" : "Nothing published";
+      publishNote.textContent = out.removed
+        ? `${out.removed} record(s) removed — nothing of this conversation is ` +
+          `on the network now`
+        : `${out.published} of ${out.turns} with words · ${out.written} record(s) written`;
     } catch (err) {
       publishBtn.textContent = before;
       addMessage("error", `Could not publish: ${err.message}`);
     } finally {
       publishBtn.disabled = false;
+      publishing = false;
     }
   }
 
@@ -1069,15 +1104,18 @@
     log.scrollTop = log.scrollHeight;
   }
 
-  // Called when a turn finishes. It writes: every turn gets a record when it
-  // happens, so the shape of the conversation is public whether or not its
-  // words are.
+  // Called when a turn finishes.
   //
-  // **It publishes nothing.** `publish` carries only what is already live, so a
-  // new turn gets a withheld record and the ticked boxes stay a statement of
-  // intent until the button is pressed. Sending `chosen()` here instead would
-  // turn ticked-by-default into publish-by-default, which is the opposite of
-  // what the button is for.
+  // **It publishes nothing.** `publish` carries only what is already live, so
+  // the ticked boxes stay a statement of intent until the button is pressed.
+  // Sending `chosen()` here instead would turn ticked-by-default into
+  // publish-by-default, which is the opposite of what the button is for.
+  //
+  // In a conversation nobody has published that list is empty and the call
+  // writes nothing at all — it is here for the turn list the boxes are built
+  // from. In one that is published it is the call that gives the new turn its
+  // withheld record, so the transcript does not end wherever publishing last
+  // caught up to.
   async function syncTurns({ inspectOnly = false } = {}) {
     if (!sessionID) return;
     try {

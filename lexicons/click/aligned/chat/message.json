@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "record",
-      "description": "One turn of a published conversation with an agent. Records are created as the conversation happens and never rewritten, so the record key's TID ordering is the reading order.",
+      "description": "One turn of a published conversation with an agent. Records exist only for a conversation somebody published; within one, every turn has a record, in order, so the record key's TID ordering is the reading order.",
       "key": "tid",
       "record": {
         "type": "object",
@@ -30,7 +30,7 @@
           },
           "withheld": {
             "type": "boolean",
-            "description": "This turn happened and its content was not published. Every turn gets a record when it happens, so a conversation published in part has visible holes rather than invisible ones \u2014 an answer to a question that was held back would otherwise read as an answer to whatever came before it. Stated rather than inferred from an empty `text`, so a reader never has to guess whether a turn was withheld or simply empty. Absent means published."
+            "description": "This turn happened and its content was not published. Every turn of a published conversation gets a record, so one published in part has visible holes rather than invisible ones \u2014 an answer to a question that was held back would otherwise read as an answer to whatever came before it. A conversation nobody published has no records at all, withheld ones included: a record saying only that somebody spoke at a time is a hole in nothing. Stated rather than inferred from an empty `text`, so a reader never has to guess whether a turn was withheld or simply empty. Absent means published."
           },
           "text": {
             "type": "string",
@@ -75,7 +75,7 @@
             "description": "When the turn happened."
           }
         },
-        "description": "One turn of a conversation, in the repo of the person who had it. Created when the turn happens, with its content only if they chose to publish it \u2014 so what is public is the shape of the conversation always, and the words by decision."
+        "description": "One turn of a conversation, in the repo of the person who had it. Written when they publish some part of that conversation, carrying its content only if this turn was one of the parts \u2014 so within a conversation that is public at all, the shape is public and the words are by decision."
       }
     },
     "step": {

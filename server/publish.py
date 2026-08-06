@@ -1,23 +1,31 @@
 """Keep a conversation's atproto records in step with what happened and what
 was chosen.
 
-**Every turn gets a record when it happens**, in the repo of the person who had
-it, carrying its words only if they chose to publish them. That is a stance, not
-a storage decision: the shape of a conversation is public and the words are by
-decision, so what this is for is visible — and what it is not for, private
-exploration, is visible too.
+**A conversation nobody has published has no records at all.** No session, no
+placeholder per turn, nothing: chatting here puts nothing on the network until
+somebody presses publish.
 
-It also removes a problem rather than managing one. Published-by-selection alone
-gives a reader no way to tell a continuous transcript from an edited one, so an
-answer to a question that was held back reads as an answer to whatever came
-before it. Here the withheld turn is a record in the right place with the right
-timestamp, and the hole is the honest kind.
+This reverses an earlier stance — a record per turn from the moment it happened,
+carrying words only by decision — and what that stance cost is worth naming,
+because it is the reason for the reversal. A withheld record carries `createdAt`.
+A repo full of them says when somebody chats, how often, and how long their
+sessions run: a behavioural profile assembled from records containing no words,
+for conversations they never chose to show anyone. Under that model there was no
+changing your mind about having had the conversation, which is a strange promise
+to attach to a tool for private exploration.
 
-What that publishes even when nothing is published: `createdAt` on every turn.
-When somebody chats, how often, how long their sessions run — a behavioural
-profile, from records that contain no words. Anybody offered this has to be told
-so before their first message, because under this model there is no changing
-your mind about having had the conversation.
+**Inside a published conversation every turn still gets a record**, carrying its
+words only if they were chosen. This is where placeholders earn their keep, and
+it is a different situation: published-by-selection alone gives a reader no way
+to tell a continuous transcript from an edited one, so an answer to a question
+that was held back reads as an answer to whatever came before it. Here the
+withheld turn is a record in the right place with the right timestamp, and the
+hole is the honest kind. The timing it discloses is about a conversation whose
+author already decided to show part of it.
+
+The two rules meet at zero, and `reconcile` follows them there: unticking the
+last published turn takes the whole conversation down rather than leaving the
+placeholders standing, because a hole is only honest when it is in something.
 
 Publishing a turn is all-or-nothing except for one thing: **redaction**. A model
 will state something about a named person that is wrong, and the choice between
@@ -234,8 +242,10 @@ def inspect(session_id: str, turns: list[dict], did: str) -> dict:
     created a placeholder for every turn ever taken — a hundred records from one
     click, spending a third of an hour's rate limit, and putting the timing of
     conversations held long before any of this existed onto the network. Records
-    are created as turns happen and when somebody presses publish; looking is
-    not either of those.
+    exist because somebody pressed publish; looking is not that.
+
+    Since a conversation with nothing published now has no records at all, this
+    returns the empty answer for most of them, and returns it without a write.
     """
     entry = (_load().get(did) or {}).get(session_id) or {}
     return {
@@ -248,10 +258,42 @@ def inspect(session_id: str, turns: list[dict], did: str) -> dict:
         "made": entry.get("made") or {},
         "redacted": entry.get("redacted") or {},
         "written": 0,
+        "removed": 0,
         "failed": [],
         "published": sum(1 for m in (entry.get("messages") or {}).values()
                          if m.get("published")),
     }
+
+
+def take_down(entry: dict, did: str) -> tuple[int, list[dict]]:
+    """Remove this conversation's records, keeping what was chosen locally.
+
+    The local entry survives with its `made` and `redacted` intact, so a
+    conversation taken down and published again comes back with the same bars in
+    the same places rather than quietly restoring words somebody covered.
+
+    Each record is dropped from the entry only once its delete has landed, so a
+    partial failure leaves the rest to the next call rather than orphaning
+    records nothing here remembers. The session goes last and only if every
+    message went: a session record with messages still pointing at it is a
+    dangling reference, and the wrong half to lose first.
+    """
+    removed, failed = 0, []
+    for mid, m in list((entry.get("messages") or {}).items()):
+        try:
+            repo.delete(MESSAGE_NSID, m["rkey"], did)
+            entry["messages"].pop(mid)
+            removed += 1
+        except Exception as e:  # noqa: BLE001 — reported, never raised at the chat
+            failed.append({"id": mid, "error": str(e)})
+    if entry.get("session") and not entry.get("messages"):
+        try:
+            repo.delete(SESSION_NSID, entry["session"].rsplit("/", 1)[-1], did)
+            entry.pop("session")
+            removed += 1
+        except Exception as e:  # noqa: BLE001
+            failed.append({"id": "session", "error": str(e)})
+    return removed, failed
 
 
 def reconcile(session_id: str, turns: list[dict], selected: set[str], did: str) -> dict:
@@ -259,9 +301,25 @@ def reconcile(session_id: str, turns: list[dict], selected: set[str], did: str) 
 
     `selected` holds the opencode message ids whose words should be public.
     Everything else gets — or keeps — a withheld record.
+
+    With nothing selected there is nothing to be a record of. A conversation that
+    has never been published stays absent, and one that was published is taken
+    down — including its withheld turns, which is the part worth being deliberate
+    about. They exist to mark the holes in something published, so when the last
+    published turn goes they are not holes any more, only a list of times
+    somebody spoke. Deleting them is the same act as unpublishing the words,
+    carried to its end.
     """
     state = _load()
     entry = state.setdefault(did, {}).setdefault(session_id, {"messages": {}})
+
+    if not selected:
+        removed, failed = 0, []
+        if entry.get("messages") or entry.get("session"):
+            removed, failed = take_down(entry, did)
+            _save(state)
+        return {"session": entry.get("session"), "turns": len(turns),
+                "published": 0, "written": 0, "removed": removed, "failed": failed}
 
     if not entry.get("session"):
         out = repo.create(SESSION_NSID, {
@@ -320,6 +378,7 @@ def reconcile(session_id: str, turns: list[dict], selected: set[str], did: str) 
         "turns": len(turns),
         "published": sum(1 for t in turns if t["id"] in selected),
         "written": written,
+        "removed": 0,
         "failed": failed,
     }
 
