@@ -144,7 +144,21 @@ tools and no error message.
 
 ## Updating
 
-    git pull && sudo deploy/install.sh
+For a change that is only code — the proxy, the page, the tools — pull it and
+restart the service that runs it. This is the common case:
+
+    git pull && sudo systemctl restart aligned-proxy
+
+`install.sh` is for when the *installation* changes: a new or edited unit file,
+a runtime that has to be fetched, a new service user. It reinstalls the units
+and restarts all four, so reaching for it to pick up an edited Python file is a
+much bigger hammer than the job needs — and it restarts the tunnel, which a code
+change has no reason to disturb.
+
+Either way, the proxy is worth a look afterwards rather than a `systemctl
+is-active`, which reports a wedged process as running:
+
+    curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8778/healthz
 
 ## Moving it from another machine
 

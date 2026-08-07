@@ -35,6 +35,20 @@ id "$SERVICE_USER" >/dev/null 2>&1 || {
 USER_HOME="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
 run_as() { sudo -u "$SERVICE_USER" -H bash -lc "$*"; }
 
+# Where a runtime is, if it is anywhere. Asking `command -v` alone was wrong and
+# quietly so: run_as is a login shell, and that shell's PATH is the system
+# default — it carries neither ~/.local/bin nor ~/.opencode/bin, which is where
+# this script installs all three of these. So nothing it installed was ever
+# found again, and every run reinstalled everything. Node tolerated that (a
+# directory swap and a symlink); cloudflared did not, and took the deploy with
+# it. Look in the place we install to, after the PATH and before giving up.
+runtime() {  # runtime <command> <path we would have installed it to>
+  local found
+  found="$(run_as "command -v $1" 2>/dev/null || true)"
+  [ -n "$found" ] || { [ -x "$2" ] && found="$2"; } || true
+  printf '%s' "$found"
+}
+
 # ---------------------------------------------------------------- runtimes
 #
 # Everything is installed into the service user's home rather than system-wide.
@@ -47,7 +61,7 @@ PYTHON="$(command -v python3 || true)"
 [ -n "$PYTHON" ] || { red "python3 is not installed"; exit 1; }
 echo "  python3      $PYTHON"
 
-NODE="$(run_as 'command -v node' 2>/dev/null || true)"
+NODE="$(runtime node "$USER_HOME/.local/bin/node")"
 if [ -z "$NODE" ]; then
   echo "  node         installing to $USER_HOME/.local/lib/node"
   NODE_VER=v24.18.1
@@ -67,20 +81,27 @@ if [ -z "$NODE" ]; then
 fi
 echo "  node         $NODE ($($NODE --version))"
 
-CLOUDFLARED="$(command -v cloudflared || run_as 'command -v cloudflared' 2>/dev/null || true)"
+CLOUDFLARED="$(runtime cloudflared "$USER_HOME/.local/bin/cloudflared")"
 if [ -z "$CLOUDFLARED" ]; then
   echo "  cloudflared  installing to $USER_HOME/.local/bin"
+  # Download beside it, then rename over it. Writing the file in place fails
+  # with ETXTBSY — "Text file busy" — whenever the tunnel is up, because this is
+  # the binary it is running, and curl reports that as the entirely opaque
+  # "(23) Failure writing output to destination". A rename swaps the directory
+  # entry instead, which the running process neither notices nor minds; it keeps
+  # the old inode until it is restarted, which is what we want anyway.
   run_as "
     set -e
     mkdir -p ~/.local/bin
-    curl -sSL -o ~/.local/bin/cloudflared \
+    curl -sSL -o ~/.local/bin/.cloudflared.new \
       https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-    chmod 755 ~/.local/bin/cloudflared"
+    chmod 755 ~/.local/bin/.cloudflared.new
+    mv -f ~/.local/bin/.cloudflared.new ~/.local/bin/cloudflared"
   CLOUDFLARED="$USER_HOME/.local/bin/cloudflared"
 fi
 echo "  cloudflared  $CLOUDFLARED"
 
-OPENCODE="$(run_as 'command -v opencode' 2>/dev/null || true)"
+OPENCODE="$(runtime opencode "$USER_HOME/.opencode/bin/opencode")"
 if [ -z "$OPENCODE" ]; then
   echo "  opencode     installing"
   run_as "curl -fsSL https://opencode.ai/install | bash"
