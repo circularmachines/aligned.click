@@ -59,6 +59,12 @@ PUBLIC = ROOT / "public"
 # `reader/`. `reader/shared/` is what the two have in common, and it sits
 # inside the deployed directory because Pages can only publish one tree.
 SHARED = ROOT / "reader" / "shared"
+# The mockup: unbuilt features, shown before they exist. Served without a
+# login, which is why it sits beside `public/` rather than inside it — the one
+# directory anybody can read is not nested in the one that needs a session, so
+# nothing lands in it by accident. serve_static() roots `/mockup/` here, and
+# that is what stops the opening reaching anything else.
+MOCKUP = ROOT / "mockup"
 OPENCODE_CONFIG = ROOT / "agent" / "opencode.json"
 PRIVATE = ROOT / "private"
 
@@ -415,6 +421,16 @@ class Handler(BaseHTTPRequestHandler):
         # the world, so gating them here would only mean the login page could
         # not use the colours the rest of it does.
         if path.startswith("/shared/"):
+            return self.serve_static(path)
+        # The mockup, above the gate on purpose: it shows features that don't
+        # exist yet to people who have no account, which is the whole point of
+        # it. It widens what this server answers unauthenticated, so it is
+        # confined to its own root in serve_static() and holds nothing real.
+        # The redirect is not cosmetic — served at `/mockup`, every relative URL
+        # in the page would resolve against `/`, so the stylesheet would 404.
+        if path == "/mockup":
+            return self.reply(301, b"", "text/plain", [("Location", "/mockup/")])
+        if path.startswith("/mockup/"):
             return self.serve_static(path)
         if path == "/login":
             return self.begin_login(url)
@@ -1200,6 +1216,16 @@ class Handler(BaseHTTPRequestHandler):
         # `/shared/…` URL; only this line knows they come from different disks.
         if path.startswith("/shared/"):
             root, rel = SHARED, path[len("/shared/"):]
+        # Its own root, and this is load-bearing rather than tidy. `/mockup/` is
+        # served without a login, so it is the one prefix an outsider can steer.
+        # Had it been a directory under PUBLIC, `/mockup/../index.html` would
+        # resolve to `public/index.html` — still inside the root, so the guard
+        # below would pass it and hand the whole logged-in app to anybody who
+        # asked. Nothing on the way here normalises the path:
+        # BaseHTTPRequestHandler doesn't, and urlsplit doesn't. Rooted at
+        # MOCKUP, that URL leaves the root and the guard 404s it.
+        elif path.startswith("/mockup/"):
+            root, rel = MOCKUP, path[len("/mockup/"):]
         else:
             root, rel = PUBLIC, path.lstrip("/") or "index.html"
         target = (root / rel).resolve()
@@ -1207,6 +1233,12 @@ class Handler(BaseHTTPRequestHandler):
             target.relative_to(root.resolve())
         except ValueError:
             return self.reply(404, {"error": "not found"})
+        # No directory index otherwise: `or "index.html"` above only fires for
+        # the bare `/`, so every subdirectory would 404 on the is_file() check.
+        # After the guard, never before — a directory outside the root has to
+        # fail as a directory.
+        if target.is_dir():
+            target = target / "index.html"
         if not target.is_file():
             return self.reply(404, {"error": "not found"})
         ctype = CONTENT_TYPES.get(target.suffix, "application/octet-stream")
