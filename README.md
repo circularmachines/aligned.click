@@ -69,6 +69,7 @@ filter in one step.
 | `agent/` | everything the agent is configured by — `opencode.json`, `OPERATING.md`, `AGENTS.md`, `models/`, and the `.opencode/tools/` wrappers. opencode runs from here, so `private/` is outside its project |
 | `tools/` | the Bluesky tools themselves, in Python. Read-only; they hold no credentials and call the sidecar |
 | `server/` | the proxy, and the write paths — publishing, posting, redaction. **No tool wrapper may ever exist for anything here**: the agent proposes, a person presses |
+| `mockup/` | features that don't exist yet, drawn so they can be argued about before they're built. Served at `aligned.click/mockup/` **without a login** — the only part of this server that is. Beside `public/` rather than inside it so nothing real lands in it by accident, and it holds no live data |
 | `publish/` | the record writers and the lexicons' source |
 | `oauth/` | the OAuth sidecar. DPoP binds a token to a key, so this is the authenticated request path, not a login helper |
 | `private/` | untracked, and holds every user's refresh tokens. Nothing in the repo may read it into the agent's reach |
