@@ -801,6 +801,39 @@ every account that has logged in are one `cat` away. Nothing above changes that
 to use on a conversation you started and not on one that has been reading
 strangers.
 
+### 10. User-facing text in one place (TODO, agreed 2026-08-08)
+
+Copy is currently scattered across three kinds of place, and which kind a
+sentence lives in is an accident of when it was written:
+
+- **Python string constants** — `LOGIN_PAGE` and `WAITING` in `server/proxy.py`,
+  which is the three-step sign-in flow and the you-are-on-the-list page. Editing
+  a sentence there is editing the server, and it needs a restart to show.
+- **Static HTML** — `landing/index.html`, `mockup/`, and the bulk of
+  `public/index.html`. Read from disk per request, so edits are live.
+- **The agent's own docs** — `agent/OPERATING.md` and friends, which are prompts
+  rather than page copy but are still words a decision was made about.
+
+The ask is that all of the first two live in one place. What has to be decided
+before building it:
+
+- **What the one place is.** A JSON or TOML file of strings that the pages pull
+  from needs a templating step, and this project has no build. The cheaper shape
+  is probably the opposite: move the Python constants *out* into HTML files
+  served like the landing page is, so "all the copy" means "the HTML files", and
+  nothing has to be templated at all.
+- **What that costs the login flow.** `LOGIN_PAGE` is not static — it is three
+  sections toggled by script, and `WAITING` interpolates `{handle}` and `{did}`.
+  A file can do the first with no change. The second needs either a placeholder
+  substitution on read (small, and the only templating in the codebase) or a
+  client-side fill from a JSON endpoint.
+- **Whether copy should be translatable later.** If yes, the strings-file shape
+  wins after all and the templating cost has to be paid once. If no, the
+  HTML-files shape is strictly simpler. Worth answering before building, because
+  it is the whole decision.
+
+No hurry, and nothing is blocked on it. Logged so it does not get rediscovered.
+
 ## Next up (shortlist, 2026-07-28)
 
 Four things, three of which turn out to be one chain:
