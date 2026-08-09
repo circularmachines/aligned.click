@@ -189,6 +189,33 @@ If the session ever lapses — it is used rarely, which is exactly when a sessio
 lapses — the symptom is `--approve` printing that it could not list somebody.
 The fix is to sign in as that account again.
 
+### Hearing about it when somebody asks
+
+Without this, a request lands in `private/waitlist.json` and a line in
+journalctl, and that is all. Set a topic:
+
+    WAITLIST_WEBHOOK=https://ntfy.sh/<topic>
+    WAITLIST_TOKEN=tk_…                       # if the topic is reserved
+
+Then restart the proxy — this is read at startup, unlike `users.json`.
+
+**Reserve the topic to your account.** On ntfy.sh a topic name is the entirety
+of its security: anyone who knows or guesses it can subscribe, and what they
+would be subscribing to is the handle of every person asking to join an
+invite-only site. That is a list of who wants in, published by accident. A token
+and a reserved topic cost nothing and close it.
+
+Check it without waiting for a stranger:
+
+    curl -H "Title: aligned.click: test" -d "hello" https://ntfy.sh/<topic>
+
+The send happens on a thread of its own, so a slow or dead ntfy delays nobody's
+login — a failure is one line in journalctl and the person who asked still gets
+their answer immediately. The log line is written whether or not a webhook is
+configured, so journalctl remains the thing that cannot fail:
+
+    journalctl -u aligned-proxy | grep waitlist
+
 ## Updating
 
 For a change that is only code — the proxy, the page, the tools — pull it and

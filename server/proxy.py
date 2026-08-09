@@ -37,6 +37,7 @@ import json
 import os
 import secrets
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -99,9 +100,18 @@ READER = os.environ.get("READER_URL", "https://read.aligned.click").rstrip("/")
 
 USERS_FILE = PRIVATE / "users.json"
 WAITLIST_FILE = PRIVATE / "waitlist.json"
-# Optional. Point it at ntfy.sh, a Discord webhook, anything that takes a POST —
-# a waitlist nobody is told about is a file that fills up quietly.
+# Optional, and shaped for ntfy: a topic URL like https://ntfy.sh/<topic>, or
+# your own ntfy server. A waitlist nobody is told about is a file that fills up
+# quietly. The message is the request body and everything else is a header,
+# which is ntfy's protocol and also the least a receiver can be asked to
+# understand — posting JSON to a topic URL delivers the JSON *as the message
+# text*, which is what this used to do.
 WAITLIST_WEBHOOK = os.environ.get("WAITLIST_WEBHOOK", "")
+# An ntfy access token (`tk_…`) for a reserved topic. Worth having: on ntfy.sh a
+# bare topic name is the whole of its security, and this one would carry the
+# handle of everybody asking to join an invite-only site to anyone who guessed
+# it. With a token the topic can be reserved and made private.
+WAITLIST_TOKEN = os.environ.get("WAITLIST_TOKEN", "")
 SESSIONS_FILE = PRIVATE / "proxy-sessions.json"
 COOKIE = "aligned_session"
 SESSION_TTL = 30 * 24 * 3600
@@ -1390,23 +1400,51 @@ NOT_INVITED = WAITING
 
 
 def notify_waitlist(did, handle):
-    """Tell the operator somebody asked. Best effort, and never in the way of
-    the answer: a webhook that is down must not turn a request into an error for
-    the person who made it."""
+    """Tell the operator somebody asked.
+
+    The log line first and unconditionally, because it is the one that cannot
+    fail. journalctl is the fallback for every way the webhook can be wrong,
+    including not being configured.
+
+    Then, off the request thread. The docstring here used to promise this was
+    "never in the way of the answer" while doing it inline with a ten-second
+    timeout — so a slow ntfy held the waitlist page for ten seconds, and the
+    person being told "you are on the list" waited on a notification addressed
+    to somebody else. A daemon thread keeps the promise the comment was already
+    making.
+    """
     print(f"[waitlist] @{handle} ({did}) asked for access", file=sys.stderr)
     if not WAITLIST_WEBHOOK:
         return
-    body = json.dumps({
-        "title": "aligned.click",
-        "message": f"@{handle} asked for access",
-        "did": did,
-        "handle": handle,
-    }).encode()
+    threading.Thread(target=_post_waitlist, args=(did, handle), daemon=True).start()
+
+
+def _post_waitlist(did, handle):
+    """POST it, ntfy's way: the message is the body, the rest are headers."""
+    headers = {
+        "Content-Type": "text/plain; charset=utf-8",
+        # ASCII only, and not a style choice: http.client encodes header values
+        # as latin-1, so the em-dash that was here raised UnicodeEncodeError
+        # before the request was ever made. The body is free to be UTF-8 — it
+        # carries a charset and is not a header.
+        "Title": "aligned.click: someone asked to join",
+        "Tags": "wave",
+    }
+    if WAITLIST_TOKEN:
+        headers["Authorization"] = f"Bearer {WAITLIST_TOKEN}"
+    body = (f"@{handle or '(handle unresolved)'}\n{did}\n\n"
+            f"approve: python3 server/proxy.py --approve {did}").encode()
     try:
         urllib.request.urlopen(urllib.request.Request(
-            WAITLIST_WEBHOOK, data=body,
-            headers={"Content-Type": "application/json"}), timeout=10).read()
-    except OSError as e:
+            WAITLIST_WEBHOOK, data=body, headers=headers), timeout=10).read()
+    # Not OSError. A bad header value raises UnicodeEncodeError and a malformed
+    # URL raises ValueError, neither of which is a network error — and this runs
+    # on a thread of its own, so anything uncaught here is a traceback in the
+    # log with no context about which login caused it.
+    except Exception as e:  # noqa: BLE001
+        # Only journalctl hears this, which is the point: a notification that
+        # failed must not become an error for the person who triggered it, and
+        # they are already looking at their answer by now.
         print(f"[waitlist] could not notify: {e}", file=sys.stderr)
 
 
