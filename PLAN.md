@@ -130,6 +130,20 @@ rather than build our own:
   to key on the resource path (external/absolute paths → deny `edit`/`bash`)
   while keeping reads allowed. Exact ruleset is an implementation detail to
   nail down and test.
+- **The built-ins we leave off, and why** (checked against `/experimental/tool/
+  ids` on 1.18.13, which is the registry rather than the docs page):
+  - `question` — hangs, per the first bullet. Not a sandboxing question, so a
+    container does not make it safe to switch on.
+  - `task` — spawns subagents, and every subagent turn bills to the one
+    `GREENPT_API_KEY`. That is the runaway the per-user limits exist for,
+    except a subagent tree has no user to attribute it to.
+  - `lsp` — wants `OPENCODE_EXPERIMENTAL_LSP_TOOL=true`, and is experimental.
+  - `list` — **not in the registry at all.** `"list": true` was in the builder
+    block from the day the config was written and never did anything, and
+    nothing ever said so. That is the argument for asking the registry rather
+    than reading the file that was supposed to produce it.
+  - `apply_patch` — registered, enabled, but not offered to every model:
+    opencode picks it or `edit` per model. Harmless either way.
 - **Per-project rules.** Because the write-allow path is project-specific,
   either one agent definition per project, or one agent whose `directory` is
   the current project + a project-agnostic ruleset (deny external writes,

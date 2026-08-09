@@ -89,7 +89,7 @@
       }
     },
     "builder": {
-      "description": "Reads, writes and runs things on this machine. Not for users.",
+      "description": "Reads, writes and runs things on this machine, and reads the web. Not for users.",
       "mode": "primary",
       "tools": {
         "author-posts": true,
@@ -105,17 +105,22 @@
         "show-actor": true,
         "show-post": true,
         "thread-posts": true,
+        "websearch": true,
+        "webfetch": true,
         "bash": true,
         "write": true,
         "edit": true,
+        "apply_patch": true,
         "read": true,
         "grep": true,
         "glob": true,
-        "list": true
+        "skill": true,
+        "todowrite": true
       },
       "permission": {
         "bash": "allow",
         "edit": "allow",
+        "webfetch": "allow",
         "read": {
           "*": "allow"
         }

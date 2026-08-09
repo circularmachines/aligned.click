@@ -1,5 +1,13 @@
-# Bluesky app-password credentials — never commit
+# The provider key and the ntfy token — never commit. (It held a Bluesky app
+# password once; it does not any more, and nothing here does.)
+#
+# The glob covers the backups people make before editing it. `.env.bak-<date>`
+# is the same secrets under a name the old single-line rule did not match, and
+# it only takes one `git add -A` in a public repo. The exception keeps the one
+# file in this family that is meant to be read by everybody.
 .env
+.env.*
+!.env.example
 
 # Private projects — the public agent is denied read access here, and these
 # stay untracked so private work never lands in the repo.
