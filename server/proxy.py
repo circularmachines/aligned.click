@@ -242,6 +242,19 @@ class State:
             self.users = load(USERS_FILE, self.users)
             self.users_mtime = current
 
+    def is_admin(self, did):
+        """Whether this person may act on the waitlist from the browser.
+
+            "did:plc:…": {"handle": "…", "admin": true}
+
+        Absent means no, so adding the flag is the whole of granting it and
+        nobody becomes an admin by an entry being written carelessly. It is not
+        ADMIN_DID: that is the project's own account, which never logs in as a
+        person and whose session exists to sign records. Conflating the two
+        would put a login on the account that writes under the domain's name.
+        """
+        return bool((self.users.get(did) or {}).get("admin"))
+
     def allowed(self, did, field):
         """What this person may choose for `field` — None meaning no limit.
 
@@ -468,6 +481,8 @@ class Handler(BaseHTTPRequestHandler):
         if limited:
             return self.reply(429, {"error": limited})
 
+        if path == "/admin/approve":
+            return self.admin_approve(method, did, url)
         if path == "/me":
             return self.whoami(did)
         if path == "/model":
@@ -1227,6 +1242,64 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- static ---------------------------------------------------------
 
+    def admin_approve(self, method, did, url):
+        """The other end of the ntfy button: approve somebody from a phone.
+
+        Everything that makes this safe is borrowed rather than invented. The
+        caller is whoever the session cookie says, which is the same check the
+        rest of the site makes; the button in the notification carries no
+        credential of its own, so a leaked topic leaks a link and not an
+        ability. The link is only useful to somebody who is already an admin
+        here — which is why the action is `view` and not ntfy's `http`, where
+        the token needed to authorise the POST would have to travel inside the
+        message and live on in its history.
+        """
+        if not state.is_admin(did):
+            # Deliberately the same answer as a DID that is not waiting: this
+            # page should not tell a logged-in non-admin whether somebody is on
+            # the waitlist, which is the only thing it knows that they do not.
+            return self.reply(403, ADMIN_APPROVE.replace("{title}", "Not for you")
+                              .replace("{body}", "This is the operator's page.")
+                              .replace("{did}", "").replace("{form}", ""),
+                              "text/html; charset=utf-8")
+
+        target = urllib.parse.parse_qs(url.query).get("did", [""])[0].strip()
+        if method == "POST":
+            # The body wins over the query string: this is what the form sent,
+            # and a form the operator just looked at is the thing being
+            # confirmed. A query parameter on a POST would let the URL disagree
+            # with the page.
+            posted = urllib.parse.parse_qs(self.body_bytes().decode("utf-8", "replace"))
+            target = posted.get("did", [target])[0].strip()
+            ok, said = admit(target)
+            listed = add_reader_author(target, (state.users.get(target) or {}).get("handle", "")) if ok else ""
+            return self.reply(200 if ok else 404,
+                              ADMIN_APPROVE.replace("{title}", "Approved" if ok else "Nothing to do")
+                              .replace("{body}", f"{said} {listed}".strip())
+                              .replace("{did}", target).replace("{form}", ""),
+                              "text/html; charset=utf-8")
+
+        entry = state.waiting.get(target)
+        if not entry:
+            already = target in state.users
+            return self.reply(200 if already else 404,
+                              ADMIN_APPROVE.replace("{title}", "Already a member" if already else "Not waiting")
+                              .replace("{body}", "Nothing to approve — they are already on the list."
+                                       if already else "Nobody by that DID is on the waitlist.")
+                              .replace("{did}", target).replace("{form}", ""),
+                              "text/html; charset=utf-8")
+
+        form = (f'<form method=post action="/admin/approve">'
+                f'<input type=hidden name=did value="{target}">'
+                f'<button>Approve</button></form>')
+        return self.reply(200, ADMIN_APPROVE
+                          .replace("{title}", f"@{entry.get('handle') or 'unknown handle'}")
+                          .replace("{body}", f"Asked on {entry.get('requested', 'an unknown date')}. "
+                                   f"Approving lets them log in, and lists them on the reader so "
+                                   f"their published conversations are rendered.")
+                          .replace("{did}", target).replace("{form}", form),
+                          "text/html; charset=utf-8")
+
     def serve_landing(self):
         """The public front page, read fresh so its copy can be edited live.
 
@@ -1398,6 +1471,27 @@ WAITING = """<!doctype html><meta charset=utf-8>
 
 NOT_INVITED = WAITING
 
+# The page the ntfy button opens. A GET only ever shows this; the approving is
+# the POST the form makes. That split is the CSRF defence and is not decoration:
+# the session cookie is SameSite=Lax, which still travels on a top-level GET
+# navigation from anywhere, so a GET that acted could be triggered by any page
+# the operator happened to open. A cross-site POST carries no cookie at all.
+ADMIN_APPROVE = """<!doctype html><meta charset=utf-8>
+<meta name=viewport content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name=theme-color content="#2f6f5e">
+<title>aligned.click</title>
+""" + STYLE + """
+<main>
+  <h1>aligned<span class=dot>.</span>click</h1>
+  <p class=step>Waitlist</p>
+  <h2>{title}</h2>
+  <p>{body}</p>
+  <p><code>{did}</code></p>
+  {form}
+  <button class=link onclick="location.href='/'">&larr; Back to the chat</button>
+</main>
+"""
+
 
 def notify_waitlist(did, handle):
     """Tell the operator somebody asked.
@@ -1432,6 +1526,16 @@ def _post_waitlist(did, handle):
     }
     if WAITLIST_TOKEN:
         headers["Authorization"] = f"Bearer {WAITLIST_TOKEN}"
+    # A `view` button, not ntfy's `http` one. `http` would POST straight to the
+    # approve endpoint, which means the credential authorising it has to be in
+    # the message — stored by ntfy, kept in its history, and delivered to every
+    # subscribed device. A leaked topic would then be the power to admit anyone.
+    # `view` opens a link instead: worthless to anybody who is not already
+    # logged in here as an admin, so the notification carries no authority.
+    # Needs the public URL, since a link to 127.0.0.1 is no use on a phone.
+    if PUBLIC_URL:
+        headers["Actions"] = (
+            f"view, Review, {PUBLIC_URL}/admin/approve?did={urllib.parse.quote(did)}")
     body = (f"@{handle or '(handle unresolved)'}\n{did}\n\n"
             f"approve: python3 server/proxy.py --approve {did}").encode()
     try:
@@ -1470,11 +1574,37 @@ def add_reader_author(did, handle):
         sys.path.insert(0, str(ROOT / "publish"))
         import members  # noqa: PLC0415 — only this path needs it, and it needs the sidecar
         members.add(did, handle)
-        print(f"listed @{handle or did} for the reader — live now, nothing to deploy")
+        return f"Listed @{handle or did} for the reader — live now, nothing to deploy."
     except Exception as e:  # noqa: BLE001 — the approval stands either way
-        print(f"NOT listed for the reader: {e}")
-        print(f"  the approval is saved. Retry with: "
-              f"python3 publish/members.py --add {did} {handle}".rstrip())
+        return (f"NOT listed for the reader: {e}\n"
+                f"The approval is saved. Retry with: "
+                f"python3 publish/members.py --add {did} {handle}".rstrip())
+
+
+def admit(did):
+    """Put somebody on the allowlist. Returns (ok, what happened).
+
+    Split from `approve()` so a request handler can call it: the CLI may exit on
+    a bad DID, an HTTP handler may not, and the difference between those two was
+    the only thing keeping this out of the request path.
+    """
+    entry = state.waiting.get(did)
+    if not entry and did not in state.users:
+        return False, f"{did} is not on the waitlist."
+    handle = (entry or {}).get("handle", "") or (state.users.get(did) or {}).get("handle", "")
+    # Merge into whatever is already there rather than replacing it. This used
+    # to assign a fresh dict, so re-approving somebody silently dropped every
+    # other field on their line — the `models` and `tools` lists that narrow
+    # what they may choose, and now `admin`. Re-approval is the one moment those
+    # are most likely to be lost and least likely to be noticed.
+    line = dict(state.users.get(did) or {})
+    line["handle"] = handle or line.get("handle", "")
+    line.setdefault("added", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    state.users[did] = line
+    save(USERS_FILE, state.users)
+    state.waiting.pop(did, None)
+    save(WAITLIST_FILE, state.waiting)
+    return True, f"Approved @{handle or did} — live on their next request."
 
 
 def approve(did):
@@ -1490,17 +1620,11 @@ def approve(did):
     the kind of half-done that nobody notices until somebody asks where their
     conversation went.
     """
-    entry = state.waiting.get(did)
-    if not entry and did not in state.users:
-        sys.exit(f"{did} is not on the waitlist. `--waitlist` lists who is.")
-    handle = (entry or {}).get("handle", "") or (state.users.get(did) or {}).get("handle", "")
-    state.users[did] = {"handle": handle,
-                        "added": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-    save(USERS_FILE, state.users)
-    state.waiting.pop(did, None)
-    save(WAITLIST_FILE, state.waiting)
-    print(f"approved @{handle or did} — live on their next request")
-    add_reader_author(did, handle)
+    ok, said = admit(did)
+    if not ok:
+        sys.exit(f"{said} `--waitlist` lists who is.")
+    print(said)
+    print(add_reader_author(did, (state.users.get(did) or {}).get("handle", "")))
 
 
 def main():
