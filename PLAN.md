@@ -834,6 +834,79 @@ before building it:
 
 No hurry, and nothing is blocked on it. Logged so it does not get rediscovered.
 
+### 11. The chat should read published conversations from atproto (TODO, 2026-08-09)
+
+The chat lists conversations out of opencode's local storage. Published records
+live in the author's repo. Those are different places, and on 2026-08-09 they
+came apart: 194 records were live and readable at read.aligned.click while the
+chat could open none of them, because the sessions they belonged to were not in
+the opencode storage on the machine now serving. The records were never at risk;
+the way in was.
+
+So the chat should be able to open a published conversation from atproto, the
+way the reader already does, rather than only from a local session.
+
+**The part that is not trivial is not the reading.** It is that a published
+record and an opencode session are not the same object and one does not contain
+the other. A record carries the rendered turn — role, text, timestamp. A session
+carries tool calls, thinking tokens, model and agent, message ids, and the
+ordering the runtime needs to take another turn. Publishing drops all of that on
+purpose, and a withheld turn carries no text at all. So a session cannot be
+rebuilt from what was published; the information is gone, not merely elsewhere.
+
+Which means the feature splits, and the split should be deliberate:
+
+- **Reading an old conversation** is straightforward and is most of the value.
+  Resolve the author's DID, list their records, render them. The reader is the
+  proof it works, and it needs nothing from this server.
+- **Continuing one** is a different feature and may not be possible honestly. A
+  reconstructed session would be missing the reasoning the original turns were
+  produced from, so the agent would be continuing a conversation it cannot see
+  the whole of. The plausible shapes are: don't offer it, or start a *new*
+  session that quotes the old one and says so.
+
+Decide which of those is wanted before building either, because "open a
+published conversation" reads like one feature and is two.
+
+### 12. Where the reader's author list lives (TODO, 2026-08-09)
+
+`approve()` now writes `reader/authors.json`, which is right but incomplete: the
+file is tracked and deployed by GitHub Actions, so a member is not rendered
+until somebody commits and pushes. If it ran on the server, that checkout also
+has a modified tracked file waiting to trip the next `git pull`.
+
+**Asked, and answered no: the reader must not fetch it from this server.** That
+is the rule in `README.md` — *nothing in `reader/` may ever call this server* —
+and it is not a style preference. The reader's whole claim is that a published
+conversation stays readable when this machine is off. An author list fetched
+from here would mean the mini-PC being down renders *nothing*, for everyone,
+including conversations that are perfectly intact on the network. It would trade
+the property the whole publishing design exists to buy for the convenience of
+skipping a commit.
+
+**The shape that fits: put the member list on atproto.** A record in the
+project's own repo listing member handles, read by the reader exactly as it
+reads conversations — one more record fetch, no new dependency, and it survives
+this machine being gone. `approve()` already has a write path to atproto through
+the sidecar, so it would write a record instead of a file.
+
+What has to be decided first:
+
+- **A lexicon for it.** `click.aligned.*` something. Small, but it is a public
+  schema and worth naming once rather than twice.
+- **Whose repo it lives in.** The project account's, which means approve() needs
+  that account's session — the same `ADMIN_DID` requirement `lexicons.py
+  --publish` already has.
+- **How the reader bootstraps.** It has to know one DID to read the list from.
+  Resolving a hardcoded handle is fine and is not a server call.
+- **Whether a member can remove themselves.** If the list is in the project's
+  repo, they cannot — which sits badly beside the exit story the mockup tells.
+  The alternative is each member publishing a "I am part of this" record and the
+  reader collecting them, which inverts the trust and is more work.
+
+Until then: the file, committed by hand. The print in `add_reader_author()` says
+so rather than leaving it to be remembered.
+
 ## Next up (shortlist, 2026-07-28)
 
 Four things, three of which turn out to be one chain:

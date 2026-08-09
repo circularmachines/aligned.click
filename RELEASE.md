@@ -721,6 +721,30 @@ Mostly done. What remains is one DNS record and one path from the UI.
       changed type, was added or became required, so nothing already written
       stops validating. And §1's "default private" is now true of the storage
       and not only of the gesture.
+
+      **Cleared again 2026-08-09, deliberately and completely** — a fresh start
+      before drawing attention to the site. 194 records: 133 for
+      `johan.aligned.click` (6 sessions, 127 messages) and 61 for
+      `testing2345.eurosky.social` (8 sessions, 53 messages). Both repos verified
+      empty afterwards by listing their PDS directly, which is the only answer
+      worth having.
+
+      **The take-down could not go through `publish.take_down` this time, and
+      that is the lesson worth keeping.** It works from `published.json`, and
+      that map had drifted: 15 session entries against 4 session rkeys, while
+      2 session and 9 message records were live on the network that it did not
+      list — the same class as the two `publish/chat.py` sessions above. Driving
+      a take-down from the map would have left 11 records published with nothing
+      locally remembering they exist. So the throwaway script enumerated
+      `com.atproto.repo.listRecords` instead, which is the only authoritative
+      answer to what is published, and refused to run unless the handle it was
+      given resolved to the DID it was pointed at — two accounts share that map
+      and a misaimed delete is not recoverable. `published.json` is now `{}`,
+      with a timestamped backup beside it.
+
+      Worth stating because it recurs: the map is a cache of what this server
+      did, not a description of what is published. Anything that must be
+      complete has to ask the PDS.
 - [ ] **Consent is per-publish.** Publishing is irreversible in the way that
       matters: a delete removes your copy, not anyone else's. A user must see
       exactly what goes out. No default-on.

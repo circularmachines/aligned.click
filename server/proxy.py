@@ -99,6 +99,10 @@ READER = os.environ.get("READER_URL", "https://read.aligned.click").rstrip("/")
 
 USERS_FILE = PRIVATE / "users.json"
 WAITLIST_FILE = PRIVATE / "waitlist.json"
+# The reader's list of whose repos to render. Tracked, and deployed to Pages by
+# GitHub Actions rather than by this machine — so approve() writing it is only
+# half of getting somebody onto read.aligned.click.
+AUTHORS_FILE = ROOT / "reader" / "authors.json"
 # Optional. Point it at ntfy.sh, a Discord webhook, anything that takes a POST —
 # a waitlist nobody is told about is a file that fills up quietly.
 WAITLIST_WEBHOOK = os.environ.get("WAITLIST_WEBHOOK", "")
@@ -1410,6 +1414,36 @@ def notify_waitlist(did, handle):
         print(f"[waitlist] could not notify: {e}", file=sys.stderr)
 
 
+def add_reader_author(handle):
+    """Put a member on the reader's author list, and say what is left to do.
+
+    read.aligned.click renders conversations by walking a list of handles. A
+    member who is not on it publishes into a void: the records land in their
+    repo, the protocol is satisfied, and nothing draws them. That failure is
+    silent from every side, which is why this is not left to be remembered.
+
+    Two things it cannot do from here. `authors.json` is tracked and deployed by
+    GitHub Actions, so the reader learns about somebody when the change is
+    committed and pushed, not when this runs — and if this ran on the server,
+    that checkout now has a modified tracked file for the next `git pull` to
+    trip over. Both are printed rather than assumed.
+    """
+    if not handle:
+        print("no handle on that entry — add them to reader/authors.json by hand")
+        return
+    try:
+        authors = json.loads(AUTHORS_FILE.read_text())
+    except (OSError, ValueError):
+        authors = []
+    if handle in authors:
+        print(f"@{handle} was already on reader/authors.json")
+        return
+    # Sorted, so the diff of who was added is one line rather than a reshuffle.
+    AUTHORS_FILE.write_text(json.dumps(sorted(set(authors) | {handle}), indent=2) + "\n")
+    print(f"added @{handle} to reader/authors.json — now commit and push it, or "
+          f"the reader will not render them")
+
+
 def approve(did):
     """Move somebody from the waitlist to the allowlist.
 
@@ -1417,16 +1451,23 @@ def approve(did):
     up on the next request. No restart, which matters most in the other
     direction — removing somebody has to take effect immediately, not whenever
     the service is next bounced.
+
+    Also puts them on the reader's author list, because being allowed to publish
+    and being rendered are two different things and granting only the first is
+    the kind of half-done that nobody notices until somebody asks where their
+    conversation went.
     """
     entry = state.waiting.get(did)
     if not entry and did not in state.users:
         sys.exit(f"{did} is not on the waitlist. `--waitlist` lists who is.")
-    state.users[did] = {"handle": (entry or {}).get("handle", ""),
+    handle = (entry or {}).get("handle", "") or (state.users.get(did) or {}).get("handle", "")
+    state.users[did] = {"handle": handle,
                         "added": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     save(USERS_FILE, state.users)
     state.waiting.pop(did, None)
     save(WAITLIST_FILE, state.waiting)
-    print(f"approved @{state.users[did]['handle'] or did} — live on their next request")
+    print(f"approved @{handle or did} — live on their next request")
+    add_reader_author(handle)
 
 
 def main():
