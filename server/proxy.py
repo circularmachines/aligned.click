@@ -65,6 +65,10 @@ SHARED = ROOT / "reader" / "shared"
 # nothing lands in it by accident. serve_static() roots `/mockup/` here, and
 # that is what stops the opening reaching anything else.
 MOCKUP = ROOT / "mockup"
+# The front door: what a logged-out visitor gets at `/`. A file rather than a
+# string in this module, because it is all copy and copy gets edited — and it is
+# read from disk per request, so editing it needs no restart.
+LANDING = ROOT / "landing" / "index.html"
 OPENCODE_CONFIG = ROOT / "agent" / "opencode.json"
 PRIVATE = ROOT / "private"
 
@@ -441,6 +445,13 @@ class Handler(BaseHTTPRequestHandler):
         if not did:
             if path.startswith("/session") or path in ("/event", "/action", "/me", "/model", "/setup", "/publish", "/redact", "/sessions"):
                 return self.reply(401, {"error": "not logged in"})
+            # The front door, and only at the root. Everywhere else still
+            # bounces to the sign-in form: a stranger who asked for a page
+            # inside the app should be told to sign in, not handed a brochure.
+            # A logged-in visitor never reaches here, so `/` is still the app
+            # for anybody who has an account.
+            if path == "/":
+                return self.serve_landing()
             return self.reply(302, b"", "text/plain", [("Location", "/login")])
 
         limited = state.within_limits(did, path.endswith("/prompt_async"))
@@ -1205,6 +1216,18 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     # ---- static ---------------------------------------------------------
+
+    def serve_landing(self):
+        """The public front page, read fresh so its copy can be edited live.
+
+        If the file is missing, fall back to the sign-in form rather than
+        erroring: a front door that has gone missing should not be what stands
+        between somebody and their account.
+        """
+        try:
+            return self.reply(200, LANDING.read_bytes(), "text/html; charset=utf-8")
+        except OSError:
+            return self.reply(302, b"", "text/plain", [("Location", "/login")])
 
     def serve_static(self, path):
         # `/shared/` is the components both halves of aligned.click use — the
