@@ -1,0 +1,238 @@
+/* The mockup's look, shared by its pages.
+ *
+ * Colour tokens come from /shared/theme.css — the same file the chat and the
+ * reader use — so a mockup cannot drift from the palette of the thing it is
+ * mocking. What is added here is only what the mockup itself needs: card types,
+ * meters, the rubric table.
+ */
+
+/* Card-type accents. Two sets, because a violet that reads on white disappears
+   on #17181c and a red that reads on #17181c glows on white. */
+:root {
+  --t-reply: #b45309;  --t-gov: #6d28d9;  --t-search: var(--accent);
+  --t-limit: #b91c1c;  --t-mark: #0e7490;
+  --pulse: rgba(47, 111, 94, 0.45);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --t-reply: #f59e0b; --t-gov: #a78bfa; --t-search: var(--accent);
+    --t-limit: #f87171; --t-mark: #22d3ee;
+    --pulse: rgba(78, 157, 133, 0.5);
+  }
+}
+
+body {
+  margin: 0;
+  font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+a { color: var(--accent); }
+code { font-size: 0.92em; }
+
+/* Said on every screen, before anything else is read. */
+.banner {
+  background: var(--accent-fill); color: #fff;
+  padding: 9px 20px; font-size: 13.5px; text-align: center;
+}
+.banner strong { font-weight: 600; }
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+
+header.site {
+  display: flex; align-items: center; gap: 14px;
+  padding: 22px 0 18px; flex-wrap: wrap;
+}
+.avatar {
+  width: 46px; height: 46px; border-radius: 50%; flex: none;
+  background: var(--accent-fill); color: #fff;
+  display: grid; place-items: center; font-weight: 600; font-size: 17px;
+}
+.who { flex: 1 1 200px; min-width: 0; }
+.who .name { font-weight: 600; }
+.who .handle { color: var(--muted); font-size: 14px; }
+
+.btn {
+  font: inherit; font-size: 14px; padding: 7px 13px; border-radius: 7px;
+  border: 1px solid var(--border); background: transparent; color: var(--fg);
+  cursor: pointer; text-decoration: none; display: inline-block;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent-fill); border-color: var(--accent-fill); color: #fff; }
+.btn.small { font-size: 13px; padding: 5px 10px; }
+
+/* ---- today's ceilings, next to the thing that spends them ----------------
+   The limits are the anti-click-farm mechanism, so they are not a settings
+   page: they sit against the button that consumes them, and are read before
+   it is pressed rather than discovered afterwards. */
+.today {
+  display: flex; align-items: center; gap: 26px; flex-wrap: wrap;
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 18px; margin-bottom: 26px; background: var(--bubble-assistant);
+}
+.gauge { flex: 1 1 190px; min-width: 170px; }
+.gauge-top { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; margin-bottom: 5px; }
+.gauge-top b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.gauge-top span { color: var(--muted); }
+.meter { height: 6px; border-radius: 4px; background: var(--border); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--accent-fill); }
+.meter.warm i { background: var(--t-reply); }
+.today .cta { flex: none; margin-left: auto; }
+.today-note { flex: 1 1 100%; color: var(--muted); font-size: 12.5px; margin: 0; }
+
+/* ---- the pointer to the steering page -----------------------------------
+   Four pulses on load and then still, because an animation that never stops
+   is a thing you learn to ignore. Nothing moves for a reader who has asked
+   the system for less motion. */
+.doorway {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  border: 1px solid var(--t-gov); border-radius: 10px;
+  padding: 16px 18px; margin-bottom: 26px;
+}
+.doorway .txt { flex: 1 1 260px; min-width: 0; }
+.doorway h3 { margin: 0 0 4px; font-size: 16px; }
+.doorway p { margin: 0; color: var(--muted); font-size: 14px; }
+.doorway .btn { flex: none; }
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 var(--pulse); }
+  70%  { box-shadow: 0 0 0 13px rgba(0,0,0,0); }
+  100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+}
+.pulse { animation: pulse-ring 2s ease-out 4 0.4s; }
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+
+h2.sec {
+  font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--muted); font-weight: 600; margin: 0 0 14px;
+}
+
+.layout { display: grid; gap: 30px; grid-template-columns: minmax(0,1fr) 300px; }
+@media (max-width: 860px) { .layout { grid-template-columns: minmax(0,1fr); } }
+
+/* ---- feed cards ---- */
+.card {
+  border: 1px solid var(--border); border-left: 3px solid var(--border);
+  border-radius: 9px; padding: 17px 18px; margin: 0 0 14px; background: var(--bubble-assistant);
+}
+.card.reply  { border-left-color: var(--t-reply); }
+.card.gov    { border-left-color: var(--t-gov); }
+.card.search { border-left-color: var(--t-search); }
+.card.limit  { border-left-color: var(--t-limit); }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em;
+  font-weight: 600; color: var(--muted); margin-bottom: 9px;
+}
+.chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.reply .chip { color: var(--t-reply); }
+.gov .chip { color: var(--t-gov); }
+.search .chip { color: var(--t-search); }
+.limit .chip { color: var(--t-limit); }
+
+.card h3 { margin: 0 0 8px; font-size: 16.5px; line-height: 1.35; }
+.card p { margin: 0 0 10px; }
+.meta { color: var(--muted); font-size: 13.5px; }
+
+.quote { border-left: 2px solid var(--border); padding: 2px 0 2px 13px; margin: 10px 0 12px; }
+.quote .attrib { color: var(--muted); font-size: 13.5px; margin-bottom: 3px; }
+
+/* The strip naming the session a thing came out of, or the cost of an action —
+   drawn as an object rather than a link, because it is the point of the card. */
+.context {
+  display: flex; gap: 11px; align-items: flex-start;
+  border: 1px solid var(--border); border-radius: 7px;
+  padding: 11px 13px; margin: 12px 0; background: var(--bg); font-size: 14px;
+}
+.context svg { flex: none; margin-top: 2px; }
+.context b { font-weight: 600; }
+
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+.cost { color: var(--muted); font-size: 13px; }
+
+.terms { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+.term { font-size: 13px; padding: 3px 9px; border-radius: 20px; border: 1px solid var(--border); background: var(--bg); }
+.term.no { color: var(--muted); text-decoration: line-through; }
+
+.bar { height: 7px; border-radius: 4px; background: var(--border); overflow: hidden; display: flex; }
+.bar i { display: block; height: 100%; }
+.bar .for { background: var(--accent-fill); }
+.bar .against { background: var(--t-limit); }
+.tally { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin: 7px 0 0; }
+.vote { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.vote .btn[aria-pressed="true"] { background: var(--accent-fill); border-color: var(--accent-fill); color: #fff; }
+
+/* ---- rail ---- */
+.rail .box { border: 1px solid var(--border); border-radius: 9px; padding: 16px; margin: 0 0 14px; }
+.rail h3 { margin: 0 0 11px; font-size: 13px; text-transform: uppercase;
+           letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+.stat { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: 14px; }
+.stat span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+.fine { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin: 11px 0 0; }
+
+/* ---- the mark ---- */
+.mark { border: 1px solid var(--border); border-radius: 11px; padding: 26px; margin: 34px 0 0; }
+.mark-top { display: flex; align-items: center; gap: 13px; flex-wrap: wrap; margin-bottom: 6px; }
+.badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--t-mark); color: var(--t-mark);
+  border-radius: 20px; padding: 5px 13px; font-size: 13.5px; font-weight: 600;
+}
+.mark h2 { margin: 0; font-size: 19px; }
+.mark > p { max-width: 64ch; color: var(--muted); }
+.conds { display: grid; gap: 13px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 20px; }
+.cond { border-top: 2px solid var(--t-mark); padding-top: 11px; }
+.cond b { display: block; font-size: 14.5px; margin-bottom: 3px; }
+.cond span { color: var(--muted); font-size: 13.5px; }
+
+footer { margin: 40px 0 0; padding: 20px 0 60px; border-top: 1px solid var(--border);
+         color: var(--muted); font-size: 13px; }
+
+/* ---- steering page ------------------------------------------------------ */
+
+.lede { font-size: 17px; color: var(--muted); max-width: 68ch; }
+.prose { max-width: 68ch; }
+.prose h2 { font-size: 20px; margin: 38px 0 10px; }
+.prose h3 { font-size: 16px; margin: 24px 0 8px; }
+
+/* The loop, as four steps that are read in order. */
+.steps { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin: 20px 0; }
+.step { border: 1px solid var(--border); border-radius: 9px; padding: 15px; background: var(--bubble-assistant); }
+.step b { display: block; margin-bottom: 5px; font-size: 14.5px; }
+.step span { color: var(--muted); font-size: 13.5px; }
+.step .n {
+  display: inline-grid; place-items: center; width: 21px; height: 21px; border-radius: 50%;
+  background: var(--accent-fill); color: #fff; font-size: 12px; font-weight: 600; margin-bottom: 8px;
+}
+
+/* The rubric: what the members have voted to reward and to punish. */
+.rubric { margin: 18px 0; }
+.rule {
+  display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--border); padding: 13px 0;
+}
+.rule:first-child { border-top: 1px solid var(--border); }
+.weight {
+  flex: none; width: 46px; font-variant-numeric: tabular-nums; font-weight: 700;
+  font-size: 15.5px; text-align: right;
+}
+.weight.plus { color: var(--accent); }
+.weight.minus { color: var(--t-limit); }
+.rule-body { flex: 1 1 260px; min-width: 0; }
+.rule-body b { font-weight: 500; }
+.rule-body .who-voted { display: block; color: var(--muted); font-size: 13px; margin-top: 3px; }
+.rule .btn { flex: none; }
+
+.callout {
+  border: 1px solid var(--border); border-left: 3px solid var(--t-mark);
+  border-radius: 9px; padding: 16px 18px; margin: 22px 0; background: var(--bubble-assistant);
+}
+.callout h3 { margin: 0 0 7px; font-size: 15.5px; }
+.callout p:last-child { margin-bottom: 0; }
+
+/* Questions the proposal has not answered. Content, not annotation — a member
+   reading this deserves to see which parts are still arguable. */
+.open { margin: 18px 0; padding: 0; list-style: none; }
+.open li { border-left: 2px solid var(--border); padding: 3px 0 3px 14px; margin-bottom: 13px; }
+.open li b { display: block; font-weight: 600; margin-bottom: 2px; }
+.open li span { color: var(--muted); font-size: 14px; }

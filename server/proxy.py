@@ -426,11 +426,9 @@ class Handler(BaseHTTPRequestHandler):
         # exist yet to people who have no account, which is the whole point of
         # it. It widens what this server answers unauthenticated, so it is
         # confined to its own root in serve_static() and holds nothing real.
-        # The redirect is not cosmetic — served at `/mockup`, every relative URL
-        # in the page would resolve against `/`, so the stylesheet would 404.
-        if path == "/mockup":
-            return self.reply(301, b"", "text/plain", [("Location", "/mockup/")])
-        if path.startswith("/mockup/"):
+        # The bare `/mockup` is included so serve_static can redirect it to
+        # `/mockup/`, which it does for any directory rather than only this one.
+        if path == "/mockup" or path.startswith("/mockup/"):
             return self.serve_static(path)
         if path == "/login":
             return self.begin_login(url)
@@ -1224,8 +1222,8 @@ class Handler(BaseHTTPRequestHandler):
         # asked. Nothing on the way here normalises the path:
         # BaseHTTPRequestHandler doesn't, and urlsplit doesn't. Rooted at
         # MOCKUP, that URL leaves the root and the guard 404s it.
-        elif path.startswith("/mockup/"):
-            root, rel = MOCKUP, path[len("/mockup/"):]
+        elif path == "/mockup" or path.startswith("/mockup/"):
+            root, rel = MOCKUP, path[len("/mockup"):].lstrip("/")
         else:
             root, rel = PUBLIC, path.lstrip("/") or "index.html"
         target = (root / rel).resolve()
@@ -1238,6 +1236,13 @@ class Handler(BaseHTTPRequestHandler):
         # After the guard, never before — a directory outside the root has to
         # fail as a directory.
         if target.is_dir():
+            # A directory's URL has to end in a slash before its index is served,
+            # or every relative link on that page resolves one level too high:
+            # `x.css` on `/mockup/steering` asks for `/mockup/x.css`. Serving it
+            # anyway works right up until somebody writes a page that doesn't
+            # spell all its links from the root, and then fails confusingly.
+            if not path.endswith("/"):
+                return self.reply(301, b"", "text/plain", [("Location", path + "/")])
             target = target / "index.html"
         if not target.is_file():
             return self.reply(404, {"error": "not found"})

@@ -3,170 +3,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Home — a mockup of aligned.click</title>
 <link rel="stylesheet" href="/shared/theme.css">
-<!-- A showcase of features that do not exist, on the main domain, with no login
-     in front of it. It must never be indexed as though it were the product. -->
+<link rel="stylesheet" href="/mockup/mockup.css">
 <meta name="robots" content="noindex, nofollow">
-<style>
-  /* Card-type accents. Two sets, because a violet that reads on white
-     disappears on #17181c and a red that reads on #17181c glows on white. */
-  :root {
-    --t-reply: #b45309;  --t-gov: #6d28d9;  --t-search: var(--accent);
-    --t-limit: #b91c1c;  --t-mark: #0e7490;
-    --note-bg: #fbf7ed;  --note-fg: #6b5b3e;  --note-br: #e8dcc0;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --t-reply: #f59e0b; --t-gov: #a78bfa; --t-search: var(--accent);
-      --t-limit: #f87171; --t-mark: #22d3ee;
-      --note-bg: #221f18; --note-fg: #c8b68d; --note-br: #3a3427;
-    }
-  }
-
-  body {
-    margin: 0;
-    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    background: var(--bg);
-    color: var(--fg);
-  }
-  a { color: var(--accent); }
-
-  /* Said on every screen, before anything else is read. */
-  .banner {
-    background: var(--accent-fill); color: #fff;
-    padding: 9px 20px; font-size: 13.5px; text-align: center;
-  }
-  .banner strong { font-weight: 600; }
-
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
-
-  header.site {
-    display: flex; align-items: center; gap: 14px;
-    padding: 22px 0 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap;
-  }
-  .avatar {
-    width: 46px; height: 46px; border-radius: 50%; flex: none;
-    background: var(--accent-fill); color: #fff;
-    display: grid; place-items: center; font-weight: 600; font-size: 17px;
-  }
-  .who { flex: 1 1 200px; min-width: 0; }
-  .who .name { font-weight: 600; }
-  .who .handle { color: var(--muted); font-size: 14px; }
-  .site-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-
-  .btn {
-    font: inherit; font-size: 14px; padding: 7px 13px; border-radius: 7px;
-    border: 1px solid var(--border); background: transparent; color: var(--fg);
-    cursor: pointer; text-decoration: none; display: inline-block;
-  }
-  .btn:hover { border-color: var(--accent); }
-  .btn.primary { background: var(--accent-fill); border-color: var(--accent-fill); color: #fff; }
-  .btn.small { font-size: 13px; padding: 5px 10px; }
-
-  .layout { display: grid; gap: 30px; grid-template-columns: minmax(0,1fr) 300px; padding: 28px 0 0; }
-  @media (max-width: 860px) { .layout { grid-template-columns: minmax(0,1fr); } }
-
-  h2.sec {
-    font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.07em;
-    color: var(--muted); font-weight: 600; margin: 0 0 14px;
-  }
-
-  /* ---- feed cards ---- */
-  .card {
-    border: 1px solid var(--border); border-left: 3px solid var(--border);
-    border-radius: 9px; padding: 17px 18px; margin: 0 0 14px; background: var(--bubble-assistant);
-  }
-  .card.reply  { border-left-color: var(--t-reply); }
-  .card.gov    { border-left-color: var(--t-gov); }
-  .card.search { border-left-color: var(--t-search); }
-  .card.limit  { border-left-color: var(--t-limit); }
-
-  .chip {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em;
-    font-weight: 600; color: var(--muted); margin-bottom: 9px;
-  }
-  .chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  .reply  .chip { color: var(--t-reply); }
-  .gov    .chip { color: var(--t-gov); }
-  .search .chip { color: var(--t-search); }
-  .limit  .chip { color: var(--t-limit); }
-
-  .card h3 { margin: 0 0 8px; font-size: 16.5px; line-height: 1.35; }
-  .card p { margin: 0 0 10px; }
-  .meta { color: var(--muted); font-size: 13.5px; }
-
-  /* A post or reply quoted from Bluesky. */
-  .quote {
-    border-left: 2px solid var(--border); padding: 2px 0 2px 13px;
-    margin: 10px 0 12px; color: var(--fg);
-  }
-  .quote .attrib { color: var(--muted); font-size: 13.5px; margin-bottom: 3px; }
-
-  /* The strip that names the session a thing came out of — the whole point of
-     the reply card, so it is drawn as a distinct object rather than a link. */
-  .context {
-    display: flex; gap: 11px; align-items: flex-start;
-    border: 1px solid var(--border); border-radius: 7px;
-    padding: 11px 13px; margin: 12px 0; background: var(--bg); font-size: 14px;
-  }
-  .context svg { flex: none; margin-top: 2px; }
-  .context b { font-weight: 600; }
-
-  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-
-  /* Query terms of a standing search: kept and excluded. */
-  .terms { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
-  .term {
-    font-size: 13px; padding: 3px 9px; border-radius: 20px;
-    border: 1px solid var(--border); background: var(--bg);
-  }
-  .term.no { color: var(--muted); text-decoration: line-through; }
-
-  /* A ballot. */
-  .bar { height: 7px; border-radius: 4px; background: var(--border); overflow: hidden; display: flex; }
-  .bar i { display: block; height: 100%; }
-  .bar .for { background: var(--accent-fill); }
-  .bar .against { background: var(--t-limit); }
-  .tally { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin: 7px 0 0; }
-  .vote { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-  .vote .btn[aria-pressed="true"] { background: var(--accent-fill); border-color: var(--accent-fill); color: #fff; }
-
-  /* ---- rail ---- */
-  .rail .box {
-    border: 1px solid var(--border); border-radius: 9px; padding: 16px; margin: 0 0 14px;
-  }
-  .rail h3 { margin: 0 0 11px; font-size: 13px; text-transform: uppercase;
-             letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
-  .stat { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: 14px; }
-  .stat span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
-  .fine { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin: 11px 0 0; }
-
-  /* ---- the mark ---- */
-  .mark { border: 1px solid var(--border); border-radius: 11px; padding: 26px; margin: 34px 0 0; }
-  .mark-top { display: flex; align-items: center; gap: 13px; flex-wrap: wrap; margin-bottom: 6px; }
-  .badge {
-    display: inline-flex; align-items: center; gap: 8px;
-    border: 1px solid var(--t-mark); color: var(--t-mark);
-    border-radius: 20px; padding: 5px 13px; font-size: 13.5px; font-weight: 600;
-  }
-  .mark h2 { margin: 0; font-size: 19px; }
-  .mark > p { max-width: 62ch; color: var(--muted); }
-  .conds { display: grid; gap: 13px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); margin-top: 20px; }
-  .cond { border-top: 2px solid var(--t-mark); padding-top: 11px; }
-  .cond b { display: block; font-size: 14.5px; margin-bottom: 3px; }
-  .cond span { color: var(--muted); font-size: 13.5px; }
-
-  /* ---- design notes ---- */
-  .note {
-    border: 1px dashed var(--note-br); background: var(--note-bg); color: var(--note-fg);
-    border-radius: 7px; padding: 10px 13px; margin: 12px 0 0; font-size: 13.5px; line-height: 1.5;
-  }
-  .note b { font-weight: 600; }
-  body.hide-notes .note { display: none; }
-
-  footer { margin: 40px 0 0; padding: 20px 0 60px; border-top: 1px solid var(--border);
-           color: var(--muted); font-size: 13px; }
-</style>
 
 <div class="banner">
   <strong>Mockup.</strong> Every name, number and post below is invented. Nothing
@@ -181,17 +19,41 @@
       <div class="name">Wren Maddox</div>
       <div class="handle">@wren.example.com · member since March</div>
     </div>
-    <div class="site-actions">
-      <button class="btn" id="notes-toggle" aria-pressed="true">Hide design notes</button>
-      <a class="btn primary" href="#">Open the agent</a>
-    </div>
   </header>
+
+  <!-- The ceilings, against the button that spends them. A click farm's whole
+       method is volume, so the number that makes this collective useless to one
+       is read before the agent is opened, not buried in a settings page. -->
+  <section class="today" aria-label="What you have left today">
+    <div class="gauge">
+      <div class="gauge-top"><span>Likes today</span><b>4 / 25</b></div>
+      <div class="meter"><i style="width:16%"></i></div>
+    </div>
+    <div class="gauge">
+      <div class="gauge-top"><span>AI-written characters today</span><b>340 / 1,000</b></div>
+      <div class="meter warm"><i style="width:34%"></i></div>
+    </div>
+    <a class="btn primary cta" href="#">Open the agent</a>
+    <p class="today-note">
+      Hard ceilings, the same for every member, and they do not roll over. 1,000
+      characters is about four considered replies — enough for a person, useless
+      to a farm. Nothing you write yourself counts against either.
+    </p>
+  </section>
+
+  <!-- The way through to the steering page. Pulses a few times on arrival. -->
+  <section class="doorway">
+    <div class="txt">
+      <h3>You have 3 unvoted changes to how the agent is scored</h3>
+      <p>Members set what earns the agent credit and what costs it. Yours are outstanding.</p>
+    </div>
+    <a class="btn primary pulse" href="/mockup/steering/">Open the scoring rubric →</a>
+  </section>
 
   <div class="layout">
     <main>
       <h2 class="sec">Waiting for you</h2>
 
-      <!-- 1. The centrepiece: a reply that arrives attached to its session. -->
       <article class="card reply">
         <div class="chip">Reply</div>
         <h3>Halden answered your question about acetate shedding</h3>
@@ -216,19 +78,10 @@
         <div class="actions">
           <a class="btn primary" href="#">Reply inside that session</a>
           <a class="btn" href="#">Read the thread</a>
-        </div>
-
-        <div class="note">
-          <b>Design note.</b> This is the whole argument for the card. A notification
-          that only says "someone replied" makes you reconstruct why you said what you
-          said; Halden is asking about a source, and the session is where the source is.
-          Answering from inside it means the agent already has the context — and the
-          reply, if you send one, is a turn in a conversation that can be published
-          like any other.
+          <span class="cost">A reply this length spends about 180 of your 660 remaining characters.</span>
         </div>
       </article>
 
-      <!-- 2. Governance: steering the agent, put to the members. -->
       <article class="card gov">
         <div class="chip">Ballot · closes Friday</div>
         <h3>Proposal 14 — may a standing search run while you are away?</h3>
@@ -250,17 +103,10 @@
         <div class="actions">
           <a class="btn small" href="#">Read the 23 comments</a>
           <a class="btn small" href="#">See what changes in the operating doc</a>
-        </div>
-        <div class="note">
-          <b>Design note.</b> A ballot that changes agent behaviour should show the
-          diff it would apply to <code>agent/OPERATING.md</code> before you vote,
-          not after it passes. Open question: is a vote a record in your own repo —
-          public, attributable, like everything else here — or is it secret? Those
-          are different products and the mockup shouldn't pretend otherwise.
+          <span class="cost">Your vote is a public record in your own repo, like everything else here.</span>
         </div>
       </article>
 
-      <!-- 3. Limits, discussed rather than imposed. -->
       <article class="card limit">
         <div class="chip">Limits · open discussion</div>
         <h3>Lowering the daily energy ceiling from 40 Wh to 25 Wh</h3>
@@ -283,17 +129,10 @@
           <a class="btn" href="#">Join the discussion (31)</a>
           <a class="btn" href="#">See the eleven weeks</a>
         </div>
-        <div class="note">
-          <b>Design note.</b> Never show a proposed limit without showing what it does
-          to the person reading it. Abstract ceilings get waved through by people they
-          would never bind and fought by people who assume the worst; the honest version
-          is one sentence of their own history.
-        </div>
       </article>
 
       <h2 class="sec">From the searches you keep</h2>
 
-      <!-- 4. A niche search, visibly built and refined by people. -->
       <article class="card search">
         <div class="chip">Your standing search · 4 new</div>
         <h3>Analogue tape restoration — practitioners, not resellers</h3>
@@ -320,16 +159,8 @@
           <a class="btn primary" href="#">Open the 4 in a session</a>
           <a class="btn" href="#">Refine the search</a>
         </div>
-        <div class="note">
-          <b>Design note.</b> The exclusions are the interesting part and should be
-          visible, because they are what makes a search niche rather than merely
-          narrow — and they carry the names of the people who worked out that the
-          feed was filling with sellers. A search here is a maintained object with
-          authors, not a saved string.
-        </div>
       </article>
 
-      <!-- 5. The collective doing what one person can't. -->
       <article class="card search">
         <div class="chip">The collective is building this one</div>
         <h3>Repair cafés that publish their fix logs</h3>
@@ -343,17 +174,21 @@
           <a class="btn primary" href="#">Triage 6 posts</a>
           <a class="btn" href="#">Suggest a term</a>
         </div>
-        <div class="note">
-          <b>Design note.</b> Showing the hit rate — 12 kept out of 140 — is what
-          makes this legible as work rather than as a feed. It is also the honest
-          counter-argument to the whole feature: if the rate stays this low, is the
-          energy worth it? That number belongs on the card where people can see it,
-          and it should be arguable.
-        </div>
       </article>
     </main>
 
     <aside class="rail">
+      <div class="box">
+        <h3>Today's ceilings</h3>
+        <div class="stat"><span>Likes</span><span>4 / 25</span></div>
+        <div class="stat"><span>AI-written characters</span><span>340 / 1,000</span></div>
+        <div class="stat"><span>Posts published</span><span>1 / 8</span></div>
+        <p class="fine">
+          The same for everyone, every day. A collective that lets one account
+          out-post a hundred people has already lost the argument it is making.
+        </p>
+      </div>
+
       <div class="box">
         <h3>This account</h3>
         <div class="stat"><span>Energy, last 7 days</span><span>14.2 Wh</span></div>
@@ -370,26 +205,16 @@
       <div class="box">
         <h3>Your standing</h3>
         <div class="stat"><span>Ballots voted</span><span>11 / 14</span></div>
+        <div class="stat"><span>Rubric weights set</span><span>9 / 12</span></div>
         <div class="stat"><span>Searches you maintain</span><span>2</span></div>
-        <div class="stat"><span>Terms contributed</span><span>17</span></div>
         <p class="fine">
-          Everything on this list is public, in your repo, on atproto — the same
-          place your published conversations go.
-        </p>
-      </div>
-
-      <div class="box">
-        <h3>Waitlist</h3>
-        <div class="stat"><span>Members</span><span>140</span></div>
-        <div class="stat"><span>Waiting</span><span>612</span></div>
-        <p class="fine">
-          Invites are issued by ballot. The next one opens when Proposal 14 closes.
+          Public by default, and in your own repo rather than ours — which is what
+          makes leaving possible. <a href="/mockup/steering/#exit">How you take it with you</a>.
         </p>
       </div>
     </aside>
   </div>
 
-  <!-- The mark. The point of the collective, stated where it can be argued with. -->
   <section class="mark">
     <div class="mark-top">
       <span class="badge">
@@ -403,20 +228,24 @@
     <p>
       A click farm can generate a plausible post about anything, at any volume, and
       nothing about the post says which it is. The mark is the wager that provenance
-      is cheaper to verify than quality is to judge — so it certifies four things a
+      is cheaper to verify than quality is to judge — so it certifies five things a
       farm cannot afford, and says nothing at all about whether the writing is good.
     </p>
     <div class="conds">
       <div class="cond">
+        <b>Volume is capped</b>
+        <span>25 likes and 1,000 AI-written characters per member per day, the same
+        for everyone. The ceiling is the part a farm cannot work around.</span>
+      </div>
+      <div class="cond">
         <b>A person pressed</b>
         <span>Every post was proposed by the agent and sent by a human. There is no
-        tool wrapper for the write path, so this is a property of the code and not a
-        promise.</span>
+        tool wrapper for the write path, so this is a property of the code.</span>
       </div>
       <div class="cond">
         <b>The conversation is readable</b>
-        <span>The exchange behind the post is published as records in the author's own
-        repo. Turns held back leave visible holes rather than silent gaps.</span>
+        <span>The exchange behind the post is published as records in the author's
+        own repo. Turns held back leave visible holes, not silent gaps.</span>
       </div>
       <div class="cond">
         <b>The cost is on the record</b>
@@ -425,17 +254,9 @@
       </div>
       <div class="cond">
         <b>The steering is voted</b>
-        <span>What the agent may and may not do is in a document the members change
-        by ballot, and every ballot is public.</span>
+        <span>What earns the agent credit and what costs it is a rubric the members
+        change by ballot — and every vote is public.</span>
       </div>
-    </div>
-    <div class="note">
-      <b>Design note.</b> The mark is only worth anything if it can be checked without
-      trusting this server, and only the first two conditions currently can — the
-      records are on atproto and readable at read.aligned.click whether or not this
-      machine is up. Publishing energy per conversation is a lexicon change, and a
-      ballot has no record type at all yet. Until both exist the fourth condition is
-      a claim, so the mockup should probably not draw it as a tick.
     </div>
   </section>
 
@@ -447,16 +268,8 @@
 </div>
 
 <script>
-  // The two bits of behaviour a static mockup needs: let a reviewer put the
-  // annotations away, and let a vote button look like it was pressed. Neither
-  // stores anything — there is nothing behind this page to store it in.
-  var toggle = document.getElementById("notes-toggle");
-  toggle.addEventListener("click", function () {
-    var hidden = document.body.classList.toggle("hide-notes");
-    toggle.textContent = hidden ? "Show design notes" : "Hide design notes";
-    toggle.setAttribute("aria-pressed", String(!hidden));
-  });
-
+  // A vote button that looks pressed. Nothing is stored — there is nothing
+  // behind this page to store it in.
   document.querySelectorAll(".vote").forEach(function (group) {
     group.addEventListener("click", function (e) {
       var pressed = e.target.closest("button");

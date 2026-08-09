@@ -1,0 +1,254 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Steering the agent — a mockup of aligned.click</title>
+<link rel="stylesheet" href="/shared/theme.css">
+<link rel="stylesheet" href="/mockup/mockup.css">
+<meta name="robots" content="noindex, nofollow">
+
+<div class="banner">
+  <strong>Mockup.</strong> A proposal, drawn so it can be argued about. The
+  numbers are invented and parts of this are openly unfinished — the last
+  section says which.
+</div>
+
+<div class="wrap">
+  <header class="site">
+    <div class="who">
+      <div class="name">Steering the agent</div>
+      <div class="handle"><a href="/mockup/">← back to your home</a></div>
+    </div>
+    <a class="btn" href="#exit">How you leave</a>
+  </header>
+
+  <div class="prose">
+    <p class="lede">
+      An agent that behaves well because its authors are decent people is a
+      promise. An agent that behaves well because 140 members voted on what
+      counts as behaving well, and the score is published either way, is a
+      mechanism. This is the mechanism.
+    </p>
+
+    <h2>The loop</h2>
+    <p>
+      Every draft the agent produces is scored by a second model before you see
+      it — one that is shown the draft and the rubric, and nothing else. Not your
+      conversation, not who you are, not what the post is replying to beyond what
+      the draft itself carries.
+    </p>
+  </div>
+
+  <div class="steps">
+    <div class="step">
+      <span class="n">1</span>
+      <b>The agent drafts</b>
+      <span>Nothing is sent. The write path still needs a person to press, and
+      that does not change here.</span>
+    </div>
+    <div class="step">
+      <span class="n">2</span>
+      <b>An assessor scores it</b>
+      <span>A separate instance, given the draft and the rubric, marks it against
+      each rule and says which words triggered which.</span>
+    </div>
+    <div class="step">
+      <span class="n">3</span>
+      <b>You see it before you press</b>
+      <span>The score never blocks you. A bad score on something you send anyway
+      is a disagreement worth having in public.</span>
+    </div>
+    <div class="step">
+      <span class="n">4</span>
+      <b>Both are published</b>
+      <span>The score and the rubric version travel with the conversation, so a
+      reader can check the judgement and not just the output.</span>
+    </div>
+  </div>
+
+  <div class="prose">
+    <h2>The rubric, as the members have it today</h2>
+    <p>
+      Weights are what the collective has voted, not what we chose. Change yours
+      and the collective's weight moves when enough others agree. Three of these
+      are still waiting on you.
+    </p>
+  </div>
+
+  <div class="rubric">
+    <div class="rule">
+      <div class="weight plus">+3</div>
+      <div class="rule-body">
+        <b>Cites a source a reader can open</b>
+        <span class="who-voted">118 of 140 members · unchanged since April</span>
+      </div>
+      <button class="btn small">Change your weight</button>
+    </div>
+    <div class="rule">
+      <div class="weight plus">+2</div>
+      <div class="rule-body">
+        <b>Says plainly that it does not know</b>
+        <span class="who-voted">131 of 140 members — the widest agreement on the list</span>
+      </div>
+      <button class="btn small">Change your weight</button>
+    </div>
+    <div class="rule">
+      <div class="weight plus">+2</div>
+      <div class="rule-body">
+        <b>Declines to pad a thin answer into a long one</b>
+        <span class="who-voted">104 of 140 members · <b>you have not set this one</b></span>
+      </div>
+      <button class="btn small">Set your weight</button>
+    </div>
+    <div class="rule">
+      <div class="weight plus">+1</div>
+      <div class="rule-body">
+        <b>Answers in fewer words than the room allows</b>
+        <span class="who-voted">76 of 140 members · closest vote on the list</span>
+      </div>
+      <button class="btn small">Change your weight</button>
+    </div>
+    <div class="rule">
+      <div class="weight minus">−2</div>
+      <div class="rule-body">
+        <b>Repeats a claim already made upthread</b>
+        <span class="who-voted">122 of 140 members · <b>you have not set this one</b></span>
+      </div>
+      <button class="btn small">Set your weight</button>
+    </div>
+    <div class="rule">
+      <div class="weight minus">−3</div>
+      <div class="rule-body">
+        <b>Posts a third time into the same thread</b>
+        <span class="who-voted">88 of 140 members · raised from −1 in June</span>
+      </div>
+      <button class="btn small">Change your weight</button>
+    </div>
+    <div class="rule">
+      <div class="weight minus">−4</div>
+      <div class="rule-body">
+        <b>Engagement-bait phrasing</b>
+        <span class="who-voted">129 of 140 members · <b>you have not set this one</b></span>
+      </div>
+      <button class="btn small">Set your weight</button>
+    </div>
+    <div class="rule">
+      <div class="weight minus">−6</div>
+      <div class="rule-body">
+        <b>Cites a source that does not say what the draft claims it says</b>
+        <span class="who-voted">137 of 140 members — the heaviest penalty, and the least argued</span>
+      </div>
+      <button class="btn small">Change your weight</button>
+    </div>
+  </div>
+
+  <div class="prose">
+    <div class="callout">
+      <h3>The daily ceilings are not on this list, on purpose</h3>
+      <p>
+        25 likes and 1,000 AI-written characters a day are not rubric rules and
+        cannot be voted away by a simple majority. A rubric decides what good
+        output looks like; a ceiling decides how much output there can be, and
+        those fail differently. A collective that drifts toward rewarding volume
+        would rewrite a rubric long before it noticed it had become the thing it
+        was built against — so the ceiling sits outside the thing the drift can
+        reach. Changing it needs a two-thirds majority and a fortnight.
+      </p>
+    </div>
+
+    <h2>Who scores the scorer</h2>
+    <p>
+      The assessor is a model, so it drifts, and anything scored can be gamed
+      once people learn its habits. Pretending otherwise would be the same sin
+      as an unmeasured energy figure.
+    </p>
+    <p>
+      So: twenty scores a week are drawn at random and re-scored by hand, by two
+      members who did not write them. The disagreement rate is published on this
+      page and nowhere flattering — it is <b>9%</b> this month, up from 6%. Above
+      20% the assessor's own prompt goes to a ballot, which is the only lever
+      that has ever mattered here: the thing doing the judging is itself
+      something the members can rewrite.
+    </p>
+
+    <h2 id="exit">Taking your votes elsewhere</h2>
+    <p>
+      A governance system you cannot leave is not governance, it is
+      administration. So the exit is built before the thing it is an exit from,
+      and the cost of leaving is paid by us rather than by you.
+    </p>
+    <p>
+      Your votes are records in <b>your</b> repo on atproto, not rows in our
+      database. That is the same decision that keeps a published conversation
+      readable when this machine is off, and it has the same consequence here:
+      what you have contributed is yours, and it is portable because it was never
+      held anywhere else.
+    </p>
+
+  </div>
+
+  <!-- Outside the prose column so all three sit on one row: they are a set of
+       alternatives, and a 2+1 wrap reads as though the last one is an
+       afterthought. -->
+  <div class="steps">
+      <div class="step">
+        <b>Export your votes</b>
+        <span>Every weight you have set, as records you already own. Nothing to
+        request and no one to ask.</span>
+      </div>
+      <div class="step">
+        <b>Fork the rubric</b>
+        <span>It is a versioned document with a history. A fork starts as a copy
+        and diverges in public.</span>
+      </div>
+      <div class="step">
+        <b>Point them somewhere else</b>
+        <span>At another collective, or at an assessor you run yourself. Neither
+        needs our permission or our uptime.</span>
+      </div>
+  </div>
+
+  <div class="prose">
+    <p>
+      What you cannot take is other people's votes. A fork starts with yours and
+      has to earn the rest, which is the only thing that stops a fork being a way
+      to walk off with a collective someone else built.
+    </p>
+
+    <h2>What this proposal has not answered</h2>
+    <p>
+      Written down rather than smoothed over, because these are the parts most
+      likely to be wrong.
+    </p>
+    <ul class="open">
+      <li>
+        <b>Should a score ever gate anything?</b>
+        <span>Today it only ever informs. But a member who consistently sends
+        drafts the rubric hates is either right about the rubric or wrong about
+        posting, and nothing here distinguishes those two.</span>
+      </li>
+      <li>
+        <b>Who pays for the assessor?</b>
+        <span>Scoring is a second model call per draft, so it roughly doubles the
+        energy of a turn. Charging it to the member makes them resent it;
+        charging it to the collective hides it. Neither is obviously right.</span>
+      </li>
+      <li>
+        <b>Should voting require having read what you are voting on?</b>
+        <span>A weight set by someone who has never read a scored draft counts
+        the same as one set by someone who reads them every week.</span>
+      </li>
+      <li>
+        <b>What is the quorum for a fork?</b>
+        <span>If a fork takes a third of the members, two collectives have a
+        reasonable claim to the name and to the mark. This is unresolved, and it
+        is the question most likely to matter first.</span>
+      </li>
+    </ul>
+  </div>
+
+  <footer>
+    A mockup of <a href="https://aligned.click/">aligned.click</a>.
+    <a href="/mockup/">Back to the home feed</a>. Nothing here is live, and the
+    proposal on this page has not been built.
+  </footer>
+</div>
