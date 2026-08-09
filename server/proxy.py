@@ -99,10 +99,6 @@ READER = os.environ.get("READER_URL", "https://read.aligned.click").rstrip("/")
 
 USERS_FILE = PRIVATE / "users.json"
 WAITLIST_FILE = PRIVATE / "waitlist.json"
-# The reader's list of whose repos to render. Tracked, and deployed to Pages by
-# GitHub Actions rather than by this machine — so approve() writing it is only
-# half of getting somebody onto read.aligned.click.
-AUTHORS_FILE = ROOT / "reader" / "authors.json"
 # Optional. Point it at ntfy.sh, a Discord webhook, anything that takes a POST —
 # a waitlist nobody is told about is a file that fills up quietly.
 WAITLIST_WEBHOOK = os.environ.get("WAITLIST_WEBHOOK", "")
@@ -1414,34 +1410,36 @@ def notify_waitlist(did, handle):
         print(f"[waitlist] could not notify: {e}", file=sys.stderr)
 
 
-def add_reader_author(handle):
-    """Put a member on the reader's author list, and say what is left to do.
+def add_reader_author(did, handle):
+    """Put a member on the reader's list, which lives on atproto.
 
-    read.aligned.click renders conversations by walking a list of handles. A
-    member who is not on it publishes into a void: the records land in their
-    repo, the protocol is satisfied, and nothing draws them. That failure is
-    silent from every side, which is why this is not left to be remembered.
+    read.aligned.click renders conversations by walking this list. A member not
+    on it publishes into a void: the records land in their repo, the protocol is
+    satisfied, and nothing draws them. Silent from every side, which is why it
+    is done here rather than left to be remembered.
 
-    Two things it cannot do from here. `authors.json` is tracked and deployed by
-    GitHub Actions, so the reader learns about somebody when the change is
-    committed and pushed, not when this runs — and if this ran on the server,
-    that checkout now has a modified tracked file for the next `git pull` to
-    trip over. Both are printed rather than assumed.
+    It used to be `reader/authors.json`, which meant a member was invisible
+    until somebody committed and pushed. The list is now a record in the
+    collective's repo, so this takes effect the moment it is written and needs
+    no deploy at all.
+
+    Never fatal. Being on the allowlist is what lets somebody in, and that has
+    already been saved by the time this runs — a failure to write the member
+    record must not leave an approval half-applied. It says what to run by hand
+    instead.
     """
-    if not handle:
-        print("no handle on that entry — add them to reader/authors.json by hand")
-        return
     try:
-        authors = json.loads(AUTHORS_FILE.read_text())
-    except (OSError, ValueError):
-        authors = []
-    if handle in authors:
-        print(f"@{handle} was already on reader/authors.json")
-        return
-    # Sorted, so the diff of who was added is one line rather than a reshuffle.
-    AUTHORS_FILE.write_text(json.dumps(sorted(set(authors) | {handle}), indent=2) + "\n")
-    print(f"added @{handle} to reader/authors.json — now commit and push it, or "
-          f"the reader will not render them")
+        sys.path.insert(0, str(ROOT / "publish"))
+        import members  # noqa: PLC0415 — only this path needs it, and it needs the sidecar
+        members.add(did, handle)
+        print(f"listed @{handle or did} for the reader — live now, nothing to deploy")
+    except SystemExit as e:  # admin_did() refuses rather than guessing
+        print(f"NOT listed for the reader: {e}")
+        print(f"  fix, then: python3 publish/members.py --add {did} {handle}".rstrip())
+    except Exception as e:  # noqa: BLE001 — the approval stands either way
+        print(f"NOT listed for the reader: {e}")
+        print(f"  the approval is saved. Retry with: "
+              f"python3 publish/members.py --add {did} {handle}".rstrip())
 
 
 def approve(did):
@@ -1467,7 +1465,7 @@ def approve(did):
     state.waiting.pop(did, None)
     save(WAITLIST_FILE, state.waiting)
     print(f"approved @{handle or did} — live on their next request")
-    add_reader_author(handle)
+    add_reader_author(did, handle)
 
 
 def main():

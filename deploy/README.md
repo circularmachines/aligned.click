@@ -142,6 +142,53 @@ current — 1.18.13 at the time of writing — while the wrappers pin
 `@opencode-ai/plugin` to 1.16.2. A version gap there produces an agent with no
 tools and no error message.
 
+## The first login, on a machine with no users
+
+Fresh, `private/users.json` is empty and nobody can log in — which is what
+invite-only means, and it is also a chicken-and-egg to walk through once.
+
+**A person becomes the first member by being turned down.** Open the site and
+sign in. Signing in *is* the request, so it puts you on the waitlist and grants
+nothing. Then, on the server:
+
+    python3 server/proxy.py --waitlist          # shows the DID that just asked
+    python3 server/proxy.py --approve <did>     # live on their next request
+
+**The admin account is a separate thing, and it is not a member.** `ADMIN_DID`
+is the account owning the authorising domain — `aligned.click` itself. It never
+chats. It exists to write two kinds of record under the domain's own name: the
+lexicon schemas (`publish/lexicons.py --publish`) and the member list
+(`publish/members.py`). What it needs is a session in the sidecar, and nothing
+else.
+
+It gets one the same way anybody does — open the site, sign in as that account.
+**It will land on the waitlist page, and that is correct.** The sidecar stores
+the session at the OAuth callback, before the proxy checks the allowlist at all,
+so the session is kept even though the login was refused. Do *not* approve it:
+approving would make the project account a chat user, which it has no reason to
+be. Take it off the waitlist if the entry bothers you.
+
+Then name it, so the writers stop guessing:
+
+    echo 'ADMIN_DID=did:plc:…' >> .env      # the DID of aligned.click itself
+
+There is no app password for this and there should not be. A stored OAuth
+session is scoped and can be revoked from the account; an app password is a
+permanent credential to the whole account, and this project removed the last one
+on purpose (`RELEASE.md` §B).
+
+**Ordering does not matter.** `--approve` writes the member record if it can and
+says what to run by hand if it cannot — a missing `ADMIN_DID` prints a line, it
+does not undo the approval. So approving people before the admin account exists
+is fine; catch the list up afterwards with:
+
+    python3 publish/members.py --import       # from users.json
+    python3 publish/members.py                # read back what is published
+
+If the session ever lapses — it is used rarely, which is exactly when a session
+lapses — the symptom is `--approve` printing that it could not list somebody.
+The fix is to sign in as that account again.
+
 ## Updating
 
 For a change that is only code — the proxy, the page, the tools — pull it and

@@ -868,44 +868,49 @@ Which means the feature splits, and the split should be deliberate:
 Decide which of those is wanted before building either, because "open a
 published conversation" reads like one feature and is two.
 
-### 12. Where the reader's author list lives (TODO, 2026-08-09)
+### 12. Where the reader's author list lives (done 2026-08-09)
 
-`approve()` now writes `reader/authors.json`, which is right but incomplete: the
-file is tracked and deployed by GitHub Actions, so a member is not rendered
-until somebody commits and pushes. If it ran on the server, that checkout also
-has a modified tracked file waiting to trip the next `git pull`.
+`reader/authors.json` meant a member was invisible until somebody committed and
+pushed, and if `approve()` wrote it on the server that checkout got a modified
+tracked file waiting to trip the next `git pull`.
 
 **Asked, and answered no: the reader must not fetch it from this server.** That
 is the rule in `README.md` — *nothing in `reader/` may ever call this server* —
 and it is not a style preference. The reader's whole claim is that a published
 conversation stays readable when this machine is off. An author list fetched
 from here would mean the mini-PC being down renders *nothing*, for everyone,
-including conversations that are perfectly intact on the network. It would trade
-the property the whole publishing design exists to buy for the convenience of
+including conversations perfectly intact on the network. It would trade the
+property the whole publishing design exists to buy for the convenience of
 skipping a commit.
 
-**The shape that fits: put the member list on atproto.** A record in the
-project's own repo listing member handles, read by the reader exactly as it
-reads conversations — one more record fetch, no new dependency, and it survives
-this machine being gone. `approve()` already has a write path to atproto through
-the sidecar, so it would write a record instead of a file.
+**Built instead: the list is on atproto.** One `click.aligned.chat.member`
+record per member in the collective's repo, written by `ADMIN_DID` through the
+sidecar, read by the reader exactly as it reads conversations. `authors.json` is
+deleted. How the four open points landed:
 
-What has to be decided first:
+- **The lexicon is `click.aligned.chat.member`**, kept under `chat.` so the
+  existing `_lexicon` DNS authority covers it — a new prefix would have needed a
+  new TXT record for no gain.
+- **The record key is the member's DID**, not a tid. Colons are legal in a
+  record key (verified against a live PDS, not assumed), which makes admitting
+  somebody twice impossible and removing them a delete against a key already
+  known.
+- **The reader bootstraps from one hardcoded handle**, `aligned.click`. Not a
+  server call, and a constant rather than configuration.
+- **No app password.** Asked whether `ADMIN_APP_PASSWORD` should come back; it
+  should not. That account already has a stored sidecar session, which is the
+  same path `lexicons.py --publish` uses, and a scoped revocable session beats a
+  permanent full-account credential for an operation that runs when somebody
+  joins.
 
-- **A lexicon for it.** `click.aligned.*` something. Small, but it is a public
-  schema and worth naming once rather than twice.
-- **Whose repo it lives in.** The project account's, which means approve() needs
-  that account's session — the same `ADMIN_DID` requirement `lexicons.py
-  --publish` already has.
-- **How the reader bootstraps.** It has to know one DID to read the list from.
-  Resolving a hardcoded handle is fine and is not a server call.
-- **Whether a member can remove themselves.** If the list is in the project's
-  repo, they cannot — which sits badly beside the exit story the mockup tells.
-  The alternative is each member publishing a "I am part of this" record and the
-  reader collecting them, which inverts the trust and is more work.
-
-Until then: the file, committed by hand. The print in `add_reader_author()` says
-so rather than leaving it to be remembered.
+**Still open, and it is the uncomfortable one.** The list lives in the
+collective's repo, so a member cannot remove themselves from it — they can stop
+publishing and they can delete their records, but they cannot take their own
+name off a list somebody else owns. That sits badly next to the exit story the
+mockup tells on `/mockup/steering/`. The alternative is each member publishing
+their own "I am part of this" record and the reader collecting them, which
+inverts the trust: the collective would no longer control who claims membership.
+Neither is obviously right, and nothing forces the choice yet.
 
 ## Next up (shortlist, 2026-07-28)
 

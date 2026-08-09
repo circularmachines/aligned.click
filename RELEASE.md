@@ -909,8 +909,11 @@ Say these in the README so nobody discovers them:
   can write to exactly one repo: the operator's.
 - No background workers, no notes, no delegation.
 - No strategizer, no scraping, no imports, no `/media/`.
-- No appview: `authors.json` is a curated list, because `listRecords` names one
-  repo and cross-author listing needs an index.
+- No appview: the member list is a curated list, because `listRecords` names one
+  repo and cross-author listing needs an index. **Since 2026-08-09 that list is
+  itself on atproto** — one `click.aligned.chat.member` record per member in the
+  collective's repo, replacing `reader/authors.json`, so admitting somebody
+  takes effect without a commit and the reader still calls nothing here.
 - No account recovery, no self-signup. Invite only, and identity is atproto's
   problem rather than ours — which is most of the point.
 - The left pane, the matcher, the confirm loop, `analyze-video` — all in

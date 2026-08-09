@@ -1,0 +1,34 @@
+{
+  "lexicon": 1,
+  "id": "click.aligned.chat.member",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Somebody whose published conversations this collective vouches for. One record per member, written to the collective's own repo by the account owning the authorising domain. The reader walks these to know whose repos to render: a list has to live somewhere, and putting it on atproto rather than on the server is what keeps the reader working when the server is not. The record says nothing about what the member published, and carries no permission — being listed here is not what allows somebody to publish, only what causes them to be read.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["subject", "addedAt"],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "format": "did",
+            "description": "The member. The record key is this same DID rather than a tid, which is what makes adding somebody twice impossible and removing them a delete against a key already known — no lookup, and no way to leave a duplicate behind. A DID is also the only name that survives: a handle is rented and can move to somebody else.",
+            "maxLength": 2048
+          },
+          "handle": {
+            "type": "string",
+            "format": "handle",
+            "description": "What the handle was when the record was written, as a convenience for anything showing this list to a person. Not authoritative and not kept up to date — resolve `subject` if it matters. Present because a list of bare DIDs is unreadable to the human who has to check it.",
+            "maxLength": 640
+          },
+          "addedAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "When this member was admitted."
+          }
+        }
+      }
+    }
+  }
+}

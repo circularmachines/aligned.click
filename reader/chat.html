@@ -236,15 +236,26 @@
   // No default author. A PDS is a repo, not a query engine — `listRecords`
   // always names one — so there is no call meaning "every conversation on the
   // network", and a reader can only read repos it already knows about.
-  // authors.json is that list: curated on purpose rather than pretending to be
-  // global, and the honest shape for something invite-sized. When it outgrows a
-  // file, that is the moment an index earns itself.
+  //
+  // That list is itself on atproto: one `click.aligned.chat.member` record per
+  // member in the collective's own repo. It used to be `authors.json` shipped
+  // beside this page, which meant a new member was invisible until somebody
+  // committed and pushed. Fetching it from the proxy instead would have been
+  // easier and was the one thing ruled out — this page must keep working when
+  // that machine is off, and an author list served from there would mean the
+  // mini-PC being down renders nothing for anyone, including conversations
+  // sitting intact on the network.
+  //
+  // So the list is read exactly like everything else here: one more repo, one
+  // more collection, no new dependency and nothing to deploy. The only thing
+  // hardcoded is which repo to ask, and a handle is not a server call.
   const HANDLE = PARAMS.get("handle");
   const SESSION = PARAMS.get("session");
-  const AUTHORS = "authors.json";
+  const COLLECTIVE = "aligned.click";
 
   const SESSION_NSID = "click.aligned.chat.session";
   const MESSAGE_NSID = "click.aligned.chat.message";
+  const MEMBER_NSID = "click.aligned.chat.member";
 
   const out = document.getElementById("out");
   const meta = document.getElementById("meta");
@@ -287,8 +298,22 @@
     return items;
   }
 
-  async function loadRepo(handle) {
-    const { did, pds } = await locate(handle);
+  // Who the collective vouches for. Resolved by DID rather than by the handle
+  // in the record: a handle is rented, and the copy stored when somebody joined
+  // is a snapshot that goes stale the day they move. The handle is carried
+  // alongside purely so the page has something readable to print.
+  async function members() {
+    const { did, pds } = await locate(COLLECTIVE);
+    return (await listAll(pds, did, MEMBER_NSID))
+      .map((r) => r.value)
+      .filter((v) => v && v.subject)
+      .sort((a, b) => (a.handle || a.subject).localeCompare(b.handle || b.subject));
+  }
+
+  // `ref` is what to resolve — a handle or a DID, locate() takes either.
+  // `label` is only what to show, and defaults to the thing we resolved.
+  async function loadRepo(ref, label) {
+    const { did, pds } = await locate(ref);
     const [sessions, messages] = await Promise.all([
       listAll(pds, did, SESSION_NSID),
       listAll(pds, did, MESSAGE_NSID),
@@ -297,7 +322,7 @@
     // order is free — no sequence number in the record, nothing to keep
     // consistent, and a turn published late still lands in the right place.
     messages.sort((a, b) => rkeyOf(a.uri).localeCompare(rkeyOf(b.uri)));
-    return { handle, did, pds, sessions, messages };
+    return { handle: label || ref, did, pds, sessions, messages };
   }
 
   const rkeyOf = (uri) => uri.split("/").pop();
@@ -365,7 +390,7 @@
     list.className = "sessions";
     for (const row of rows) {
       const li = document.createElement("li");
-      li.innerHTML = `<a href="?handle=${encodeURIComponent(row.repo.handle)}&session=${row.key}">
+      li.innerHTML = `<a href="?handle=${encodeURIComponent(row.repo.did)}&session=${row.key}">
         <div class="title">${esc(row.session.value.title
             || opener(row.repo.messages, row.key) || "(no opening message)")}</div>
         <div class="sub">${esc(row.repo.handle)} · ${when(row.session.value.createdAt)} · ${row.turns} turns</div></a>`;
@@ -596,11 +621,12 @@
         return;
       }
 
-      const authors = await json(AUTHORS);
+      const authors = await members();
       // allSettled, not all: one author who has moved PDS, deleted their
       // account or never published anything must not blank the page for
       // everyone else. A curated list ages, and it should age quietly.
-      const loaded = await Promise.allSettled(authors.map(loadRepo));
+      const loaded = await Promise.allSettled(
+        authors.map((m) => loadRepo(m.subject, m.handle || m.subject)));
       const repos = loaded.filter((r) => r.status === "fulfilled").map((r) => r.value);
       const missed = loaded.length - repos.length;
       meta.innerHTML = `${repos.length} author${repos.length === 1 ? "" : "s"}`
