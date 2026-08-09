@@ -25,7 +25,6 @@ beats a permanent credential that cannot, and the session already exists.
     python3 publish/members.py --import        # from private/users.json, once
 """
 import json
-import os
 import sys
 import time
 import urllib.parse
@@ -36,37 +35,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 import records  # noqa: E402
+from bsky import BskyError, admin_did  # noqa: E402
 
 MEMBER_NSID = "click.aligned.chat.member"
 ROOT = Path(__file__).parent.parent
 USERS_FILE = ROOT / "private" / "users.json"
-ENV_FILE = ROOT / ".env"
 
-
-def admin_did() -> str:
-    """Who writes the list. Read at call time, not at import.
-
-    The proxy gets `.env` from systemd's EnvironmentFile, but `--approve` is run
-    by hand from a shell that has not sourced anything — so the variable is
-    there for the service and missing for the person. Falling back to reading
-    `.env` is what `start.sh` already does for two other variables, and it means
-    one implementation serves both callers.
-    """
-    did = os.environ.get("ADMIN_DID", "").strip()
-    if not did and ENV_FILE.exists():
-        for line in ENV_FILE.read_text().splitlines():
-            if line.startswith("ADMIN_DID="):
-                did = line.split("=", 1)[1].strip().strip('"').strip("'")
-                break
-    if not did:
-        sys.exit("ADMIN_DID is not set — the member list is written by the account "
-                 "owning the authorising domain, and this refuses to guess which "
-                 "that is. Put it in .env, and make sure that account has logged "
-                 "into the sidecar.")
-    return did
-
-
-_admin = admin_did  # the name the rest of this module was written against
+# Who writes the list: shared with lexicons.py rather than reimplemented, since
+# "which account speaks for the domain" should have exactly one answer.
+_admin = admin_did
 
 
 def add(did: str, handle: str = "") -> None:
@@ -164,4 +141,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # A missing ADMIN_DID is a thing to be told, not a stack trace. It raises
+    # rather than exits so that callers inside the proxy can carry on without
+    # the process dying under them; at a shell it should just say so.
+    try:
+        main()
+    except BskyError as e:
+        sys.exit(str(e))

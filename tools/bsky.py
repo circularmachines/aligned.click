@@ -94,6 +94,41 @@ def acting_did() -> str:
     return _checked(did, "ACTING_DID")
 
 
+ENV_FILE = Path(__file__).parent.parent / ".env"
+
+
+def admin_did() -> str:
+    """The account owning the authorising domain. Writes under the domain's name.
+
+    Not `acting_did()` and not a fallback for it. That one answers "who is
+    asking", and is a person; this answers "who speaks for aligned.click", and
+    is the project. Two of these must never quietly become one — a schema or a
+    member list written as whoever happened to be chatting is a claim made in
+    the wrong name, and it is already on the firehose by the time anyone reads
+    it.
+
+    Read at call time and out of `.env` when the environment is bare, because
+    the callers are split: the proxy is handed `.env` by systemd's
+    EnvironmentFile, while `--approve` and `lexicons.py --publish` are run by
+    hand from a shell that has sourced nothing. `start.sh` already reads that
+    file the same way for two other variables.
+    """
+    did = os.environ.get("ADMIN_DID", "").strip()
+    if not did and ENV_FILE.exists():
+        for line in ENV_FILE.read_text().splitlines():
+            if line.startswith("ADMIN_DID="):
+                did = line.split("=", 1)[1].strip().strip('"').strip("'")
+                break
+    if not did:
+        raise BskyError(
+            "ADMIN_DID is not set. Writing under the domain's own name needs "
+            "the account that owns it, and this refuses to guess which that "
+            "is. Put `ADMIN_DID=did:plc:…` in .env, and make sure that account "
+            "has logged into the sidecar — see deploy/README.md."
+        )
+    return did
+
+
 def _checked(did: str, source: str) -> str:
     if not did.startswith("did:"):
         raise BskyError(f"{source} is {did!r}, which is a handle, not a DID — "

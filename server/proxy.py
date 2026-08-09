@@ -1433,9 +1433,6 @@ def add_reader_author(did, handle):
         import members  # noqa: PLC0415 — only this path needs it, and it needs the sidecar
         members.add(did, handle)
         print(f"listed @{handle or did} for the reader — live now, nothing to deploy")
-    except SystemExit as e:  # admin_did() refuses rather than guessing
-        print(f"NOT listed for the reader: {e}")
-        print(f"  fix, then: python3 publish/members.py --add {did} {handle}".rstrip())
     except Exception as e:  # noqa: BLE001 — the approval stands either way
         print(f"NOT listed for the reader: {e}")
         print(f"  the approval is saved. Retry with: "

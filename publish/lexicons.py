@@ -34,7 +34,6 @@ field required is not.
 """
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -42,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 import records  # noqa: E402
-from bsky import BskyError  # noqa: E402
+from bsky import BskyError, admin_did  # noqa: E402
 
 LEXICON_DIR = Path(__file__).parent.parent / "lexicons"
 SCHEMA_NSID = "com.atproto.lexicon.schema"
@@ -51,7 +50,9 @@ SCHEMA_NSID = "com.atproto.lexicon.schema"
 # be chatting. It has to have logged into the sidecar like anyone else — there
 # is no app password for it any more — and that login is needed only when a
 # schema changes, which should be close to never.
-ADMIN_DID = os.environ.get("ADMIN_DID", "").strip()
+#
+# Resolved in bsky.admin_did(), which also reads `.env`: this is run by hand
+# from a shell, and only the service is handed that file by systemd.
 
 
 def documents() -> list[tuple[str, dict]]:
@@ -80,10 +81,10 @@ def main() -> None:
     args = parser.parse_args()
 
     schemas = documents()
-    if not ADMIN_DID:
-        sys.exit("ADMIN_DID is not set — a schema is published by the account "
-                 "that owns the authorising domain, so it has to be named.")
-    did = ADMIN_DID
+    try:
+        did = admin_did()
+    except BskyError as e:
+        sys.exit(str(e))
     print(f"{len(schemas)} schema(s) -> {did}")
     for nsid, doc in schemas:
         authority = ".".join(reversed(nsid.split(".")[:-1]))
@@ -97,7 +98,7 @@ def main() -> None:
         # The whole document goes in, `id` included: the record key already says
         # the NSID, but a record that also states its own name is readable on its
         # own, and the schema record is deliberately an open object.
-        out = records.put(SCHEMA_NSID, nsid, {"$type": SCHEMA_NSID, **doc}, ADMIN_DID)
+        out = records.put(SCHEMA_NSID, nsid, {"$type": SCHEMA_NSID, **doc}, did)
         print(f"  {out['uri']}")
 
     authorities = sorted({".".join(reversed(n.split(".")[:-1])) for n, _ in schemas})
