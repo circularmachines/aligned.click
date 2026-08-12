@@ -16,6 +16,9 @@ private/
 # Runtime state written by the post tools (index -> at:// URI mapping)
 tools/.post_index.jsonl
 
+# CAUSE prototype run log (local data, not atproto)
+cause/causes.json
+
 # Shared case file the agent + background workers append findings to
 NOTES.md
 
