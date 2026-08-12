@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CAUSE — prototype</title>
+<script type="module" src="shared/atproto-wc.js"></script>
 <style>
   :root {
     color-scheme: light dark;
@@ -50,15 +51,38 @@
   .panel { border: 1px solid var(--border); border-radius: 12px; padding: 16px; background: var(--bg); }
   .panel h2 { font-size: 13px; margin: 0 0 4px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 650; }
   .panel .hint { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
-  textarea {
-    width: 100%; min-height: 90px; resize: vertical;
-    font: inherit; font-size: 14px;
+  input[type=text], textarea {
+    width: 100%; font: inherit; font-size: 14px;
     background: var(--bg); color: var(--fg);
-    border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+    border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px;
   }
-  #notes { min-height: 150px; }
+  textarea { min-height: 72px; resize: vertical; }
+  input[type=text]:focus, textarea:focus { outline: none; border-color: var(--accent); }
+
+  .addrow { display: flex; gap: 8px; margin-top: 10px; }
+  .addrow button {
+    font: inherit; font-size: 13px; flex: none;
+    background: none; color: var(--accent);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; cursor: pointer;
+  }
+  .addrow button:hover { border-color: var(--accent); }
+
+  .items { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .item {
+    display: flex; align-items: baseline; gap: 8px;
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px;
+    font-size: 13.5px;
+  }
+  .item .txt { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--fg); }
+  .item .src { color: var(--muted); font-size: 11px; flex: none; }
+  .item .del {
+    flex: none; background: none; border: none; cursor: pointer;
+    color: var(--muted); font-size: 15px; line-height: 1;
+  }
+  .item .del:hover { color: var(--t-danger, #b91c1c); }
+  .kw .txt { font-weight: 600; }
+
   #notesbox { margin-top: 16px; }
-  textarea:focus { outline: none; border-color: var(--accent); }
   #runrow { margin-top: 16px; display: flex; align-items: center; gap: 12px; }
   #play {
     font: inherit; font-weight: 650; font-size: 15px;
@@ -69,23 +93,33 @@
   #status { font-size: 13px; color: var(--muted); min-height: 1.2em; }
   #status.err { color: var(--t-danger, #b91c1c); }
 
-  #results { display: flex; flex-direction: column; gap: 12px; }
-  .post { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
-  .who { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
-  .who .handle { font-weight: 650; }
-  .who .time { color: var(--muted); font-size: 12.5px; }
-  .post .text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 8px; }
-  .label {
-    display: inline-block; font-size: 12px; line-height: 1.4;
-    background: var(--label-bg); color: var(--label-fg);
-    border: 1px solid var(--border); border-radius: 8px; padding: 5px 9px;
+  #results { display: flex; flex-direction: column; gap: 14px; }
+  .post {
+    border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px;
   }
-  .label b { font-weight: 650; }
-  .post .meta { margin-top: 8px; font-size: 11.5px; color: var(--muted); }
-  .post .meta a { color: var(--accent); }
+  .who { display: flex; align-items: baseline; gap: 8px; }
+  .who .handle { font-weight: 650; font-size: 13.5px; }
+  .who .time { color: var(--muted); font-size: 12px; }
+  .why { margin: 8px 0 10px; font-size: 12.5px; }
+  .why .reason {
+    display: block; background: var(--label-bg); color: var(--label-fg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+  }
+  .why .reason b { font-weight: 650; }
+  .why .notes { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .why .notes span {
+    font-size: 11.5px; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px;
+  }
+  .post atproto-post { display: block; width: 100%; }
   .empty { color: var(--muted); border: 1px dashed var(--border); border-radius: 12px; padding: 28px; text-align: center; }
   #loginprompt { margin-bottom: 14px; display: none; }
-  #loginprompt input { font: inherit; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); }
+  #loginprompt form { display: flex; gap: 8px; }
+  #loginprompt input { flex: 1; }
+  #loginprompt button {
+    font: inherit; color: #fff; background: var(--accent-fill);
+    border: none; border-radius: 6px; padding: 8px 14px; cursor: pointer; flex: none;
+  }
 </style>
 </head>
 <body>
@@ -104,7 +138,7 @@
     <p class="hint">Keyword search is made as a real account. Enter your Bluesky handle to authorise on this machine.</p>
     <form id="loginform">
       <input id="handle" type="text" placeholder="you.bsky.social" autocomplete="username">
-      <button type="submit" style="font:inherit;color:#fff;background:var(--accent-fill);border:none;border-radius:6px;padding:7px 14px;cursor:pointer;margin-left:8px">Log in</button>
+      <button type="submit">Log in</button>
     </form>
   </div>
 
@@ -112,13 +146,17 @@
     <div>
       <div class="panel">
         <h2>Keywords</h2>
-        <p class="hint">Broad recall terms, one per line. The keyword stage narrows nothing — it only decides which posts the classifier ever sees.</p>
-        <textarea id="keywords" placeholder="repair cafe&#10;fix it night&#10;lădan med saker"></textarea>
+        <p class="hint">Broad recall terms. Each is an item — one day its own atproto record, from its own author.</p>
+        <input id="kwinput" type="text" placeholder="repair cafe" autocomplete="off">
+        <div class="addrow"><button id="kwadd">add keyword</button></div>
+        <div id="kwitems" class="items"></div>
       </div>
       <div class="panel" id="notesbox">
         <h2>Prompt notes</h2>
-        <p class="hint">The cause's judgment — the only thing that decides what a member is shown.</p>
-        <textarea id="notes" placeholder="Health and wellbeing; Nordic nature and outdoor life. Stories about mending, repurposing, and the local."></textarea>
+        <p class="hint">The cause's judgment — one line, one note. Only agents that see a surfaced post inspect these.</p>
+        <textarea id="notesinput" placeholder="Stories about mending, repurposing, and the local, not about buying new."></textarea>
+        <div class="addrow"><button id="noteadd">add note</button></div>
+        <div id="noteitems" class="items"></div>
         <div id="runrow">
           <button id="play">Play</button>
           <div id="status"></div>
@@ -134,6 +172,58 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+const newId = () => crypto.randomUUID().slice(0, 12);
+
+let kwItems = [];
+let noteItems = [];
+
+function renderItems(container, items) {
+  container.innerHTML = '';
+  if (!items.length) return;
+  for (const it of items) {
+    const d = document.createElement('div');
+    d.className = 'item';
+    const txt = document.createElement('span');
+    txt.className = 'txt';
+    txt.textContent = it.text;
+    const who = document.createElement('span');
+    who.className = 'src';
+    who.textContent = 'you';
+    const del = document.createElement('button');
+    del.className = 'del';
+    del.textContent = '×';
+    del.title = 'remove';
+    del.addEventListener('click', () => {
+      const list = container === $('kwitems') ? kwItems : noteItems;
+      list.splice(list.indexOf(it), 1);
+      renderItems(container, list);
+    });
+    d.appendChild(txt); d.appendChild(who); d.appendChild(del);
+    container.appendChild(d);
+  }
+}
+
+$('kwinput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); addKeyword(); }
+});
+$('kwadd').addEventListener('click', addKeyword);
+function addKeyword() {
+  const t = $('kwinput').value.trim();
+  if (!t) return;
+  kwItems.push({ id: newId(), text: t });
+  $('kwinput').value = '';
+  renderItems($('kwitems'), kwItems);
+}
+
+$('noteadd').addEventListener('click', addNotes);
+function addNotes() {
+  const raw = $('notesinput').value;
+  const lines = raw.split('\n').map((s) => s.trim()).filter(Boolean);
+  if (!lines.length) return;
+  for (const line of lines) noteItems.push({ id: newId(), text: line });
+  $('notesinput').value = '';
+  renderItems($('noteitems'), noteItems);
+}
 
 async function refreshState() {
   const r = await fetch('/state');
@@ -143,16 +233,12 @@ async function refreshState() {
   if (s.logged_in) {
     bar.classList.add('logged');
     $('logintext').textContent = 'logged in · ' + shortDid(s.did);
-    if (s.note) status('', '');
   } else {
     bar.classList.remove('logged');
     $('logintext').textContent = s.note ? 'sidecar unreachable' : 'not logged in';
   }
 }
-
-function shortDid(did) {
-  return did ? did.slice(0, 12) + '…' : '—';
-}
+function shortDid(did) { return did ? did.slice(0, 12) + '…' : '—'; }
 
 $('loginform').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -165,23 +251,56 @@ function dbPostUrl(post) {
   return m ? 'https://bsky.app/profile/' + (post.did || post.handle) + '/post/' + m[1] : post.uri;
 }
 
-function postCard(p) {
-  const time = (p.createdAt || '').replace('T', ' ').slice(0, 16) || '?';
-  const count = (p.likeCount ? p.likeCount + ' likes' : '');
-  const el = document.createElement('div');
-  el.className = 'post';
-  el.innerHTML =
-    '<div class="who"><span class="handle">@' + esc(p.handle) + '</span>' +
-    '<span class="time">' + esc(time) + (count ? ' · ' + esc(count) : '') + '</span></div>' +
-    '<p class="text">' + esc(p.text) + '</p>' +
-    '<span class="label"><b>why this surfaced</b> — ' + esc(p.reason || '') + '</span>' +
-    '<div class="meta"><a href="' + dbPostUrl(p) + '" target="_blank" rel="noopener">open in Bluesky</a></div>';
-  return el;
-}
-
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
     ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+}
+
+function postCard(p) {
+  const time = (p.createdAt || '').replace('T', ' ').slice(0, 16) || '?';
+  const el = document.createElement('div');
+  el.className = 'post';
+
+  const who = document.createElement('div');
+  who.className = 'who';
+  who.innerHTML = '<span class="handle">@' + esc(p.handle) + '</span>' +
+                  '<span class="time">' + esc(time) + '</span>';
+  el.appendChild(who);
+
+  const why = document.createElement('div');
+  why.className = 'why';
+  why.innerHTML = '<span class="reason"><b>why this surfaced</b> — ' +
+                  esc(p.reason || '') + '</span>';
+  if (p.note_texts && p.note_texts.length) {
+    const notes = document.createElement('div');
+    notes.className = 'notes';
+    for (const nt of p.note_texts) {
+      const s = document.createElement('span');
+      s.textContent = nt;
+      notes.appendChild(s);
+    }
+    why.appendChild(notes);
+  }
+  el.appendChild(why);
+
+  const post = document.createElement('atproto-post');
+  post.setAttribute('src', p.uri);
+  post.setAttribute('compact', '');
+  el.appendChild(post);
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.style.cssText = 'margin-top:8px;font-size:11.5px;color:var(--muted);';
+  const a = document.createElement('a');
+  a.href = dbPostUrl(p);
+  a.target = '_blank';
+  a.rel = 'noopener';
+  a.textContent = 'open in Bluesky';
+  a.style.color = 'var(--accent)';
+  meta.appendChild(a);
+  el.appendChild(meta);
+
+  return el;
 }
 
 function status(msg, cls) {
@@ -191,9 +310,9 @@ function status(msg, cls) {
 }
 
 async function run() {
-  const keywords = $('keywords').value;
-  const notes = $('notes').value;
-  if (!keywords.trim() || !notes.trim()) { status('fill in both boxes first', 'err'); return; }
+  const kw = kwItems.map((i) => i.text).join('\n');
+  const notes = noteItems.map((i) => i.text).join('\n');
+  if (!kw.trim() || !notes.trim()) { status('add keywords and at least one note first', 'err'); return; }
 
   $('play').disabled = true;
   status('recall: searching Bluesky for the keywords…');
@@ -203,7 +322,7 @@ async function run() {
     const r = await fetch('/run', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ keywords, notes }),
+      body: JSON.stringify({ keywords: kw, notes }),
     });
     const d = await r.json();
 
@@ -237,6 +356,8 @@ async function run() {
 }
 
 $('play').addEventListener('click', run);
+renderItems($('kwitems'), kwItems);
+renderItems($('noteitems'), noteItems);
 refreshState();
 </script>
 </body>

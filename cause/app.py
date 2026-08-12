@@ -23,6 +23,7 @@ sidecar that points its redirect at this port.
     python3 cause/app.py            # serves http://127.0.0.1:8780
 """
 
+import datetime
 import json
 import os
 import re
@@ -31,12 +32,19 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).parent
 REPO = ROOT.parent
 TOOLS = REPO / "tools"
+
+# The post cards on the page are `<atproto-post>` web components, vendored once
+# for the chat and reader. This prototype serves the same file rather than
+# copying it — one copy of a vendored bundle is the point.
+SHARED = REPO / "reader" / "shared"
+SHARED_FILES = {"atproto-wc.js", "theme.css"}
 
 # The tools assume they are importable by bare name (they are run from
 # tools/), so the simplest way to reuse them here is to put tools/ on the path
@@ -78,15 +86,40 @@ def logged_in_did() -> str | None:
     return dids[0] if dids else None
 
 
-# --- recall ------------------------------------------------------------------
+# --- the cause's items ------------------------------------------------------
+
+# A keyword and a prompt note are each their own item, not words in one blob.
+# The prototype stores them as independent objects because the real cause will
+# store them as independent atproto records, from different authors: an item
+# must be removable, attributable, and able to disagree with its siblings.
 
 
-def _keywords_from(text: str) -> list[str]:
-    """Split the keywords box into terms: one per line or per comma. A
-    multi-word term stays intact and is searched as an exact phrase."""
+def item(text: str, author: str) -> dict:
+    """One keyword or note as a first-class item. `author` is the DID who added
+    it — the seed of the provenance label."""
+    return {
+        "id": uuid.uuid4().hex[:12],
+        "text": text,
+        "author": author,
+        "created": datetime.datetime.now(datetime.timezone.utc).isoformat(
+            timespec="seconds"),
+    }
+
+
+def _split_keyword_items(text: str) -> list[str]:
+    """The keywords box: one term per line or per comma. A multi-word term
+    stays intact and is searched as an exact phrase."""
     raw = re.split(r"[\n,]+", text)
-    terms = [t.strip() for t in raw if t.strip()]
-    return terms[:MAX_KEYWORDS]
+    return [t.strip() for t in raw if t.strip()][:MAX_KEYWORDS]
+
+
+def _split_note_items(text: str) -> list[str]:
+    """The notes box: each line is one note. A note is a discrete statement of
+    judgment, so the line boundary is the item boundary."""
+    return [n.strip() for n in text.splitlines() if n.strip()]
+
+
+# --- recall ------------------------------------------------------------------
 
 
 def recall(terms: list[str], did: str) -> list[dict]:
@@ -120,23 +153,22 @@ def recall(terms: list[str], did: str) -> list[dict]:
 # --- storage -----------------------------------------------------------------
 
 
-def save_run(did: str, keywords: str, notes: str, surfaced: list[dict],
-             candidates: int) -> None:
+def save_run(did: str, keyword_items: list[dict], note_items: list[dict],
+             surfaced: list[dict], candidates: int) -> None:
     record = {
-        "created": None,  # set below
+        "created": datetime.datetime.now(
+            datetime.timezone.utc).isoformat(timespec="seconds"),
         "did": did,
-        "keywords": keywords,
-        "notes": notes,
+        "keywords": keyword_items,
+        "notes": note_items,
         "candidate_count": candidates,
         "surfaced": [
             {"uri": s.get("uri"), "handle": s.get("handle"),
-             "text": s.get("text"), "reason": s.get("reason")}
+             "text": s.get("text"), "reason": s.get("reason"),
+             "note_ids": s.get("note_ids")}
             for s in surfaced
         ],
     }
-    import datetime
-    record["created"] = datetime.datetime.now(
-        datetime.timezone.utc).isoformat(timespec="seconds")
     runs = []
     if CAUSES_FILE.exists():
         try:
@@ -185,6 +217,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._login()
         if path == "/oauth/callback":
             return self._callback()
+        if path.startswith("/shared/"):
+            return self._shared(path[len("/shared/"):])
         if path == "/health":
             return self._json(200, {"ok": True})
         self._json(404, {"error": "no such route", "path": path})
@@ -201,6 +235,18 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as e:
             return self._send(500, f"cannot read index.html: {e}".encode(), "text/plain")
         self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
+
+    def _shared(self, name: str) -> None:
+        """The vendored web components, from their single home in reader/."""
+        if name not in SHARED_FILES:
+            return self._json(404, {"error": "no such shared file"})
+        try:
+            body = (SHARED / name).read_bytes()
+        except OSError as e:
+            return self._send(500, str(e).encode(), "text/plain")
+        ctype = "application/javascript; charset=utf-8" if name.endswith(".js") \
+            else "text/css; charset=utf-8"
+        self._send(200, body, ctype)
 
     def _state(self) -> None:
         try:
@@ -251,27 +297,41 @@ class Handler(BaseHTTPRequestHandler):
             if not did:
                 return self._json(200, {"ok": False, "error": "login",
                                         "message": "Nobody is logged in. Log in with your Bluesky handle to search."})
-            terms = _keywords_from(keywords)
+            keyword_items = [item(t, did) for t in _split_keyword_items(keywords)]
+            note_items = [item(t, did) for t in _split_note_items(notes)]
+            terms = [k["text"] for k in keyword_items]
             if not terms:
                 return self._json(400, {"ok": False, "error": "No searchable keywords in that box."})
 
             candidates = recall(terms, did)
-            surfaced = classify.classify(candidates, notes, terms) if candidates else []
+            surfaced = classify.classify(candidates, [n["text"] for n in note_items]) \
+                if candidates else []
 
-            save_run(did, keywords, notes, surfaced, len(candidates))
-            return self._json(200, {
-                "ok": True,
-                "did": did,
-                "keywords": terms,
-                "candidates": len(candidates),
-                "surfaced": surfaced,
-            })
+            # Attribute each surfaced post to the note items it rests on. The
+            # classifier cites notes by 1-based number; map those back to ids.
+            for s in surfaced:
+                refs = [note_items[i - 1] for i in s.get("note_inds", [])
+                        if 0 < i <= len(note_items)]
+                s["note_ids"] = [r["id"] for r in refs]
+                s["note_texts"] = [r["text"] for r in refs]
+                s.pop("note_inds", None)
+
+            save_run(did, keyword_items, note_items, surfaced, len(candidates))
         except CauseError as e:
             return self._json(200, {"ok": False, "error": str(e)})
         except classify.ClassifyError as e:
             return self._json(200, {"ok": False, "error": str(e)})
         except Exception as e:  # noqa: BLE001 — surface anything, it is a prototype
             return self._json(500, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+
+        return self._json(200, {
+            "ok": True,
+            "did": did,
+            "keywords": keyword_items,
+            "notes": note_items,
+            "candidates": len(candidates),
+            "surfaced": surfaced,
+        })
 
 
 def main() -> None:
