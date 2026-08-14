@@ -19,6 +19,11 @@ tools/.post_index.jsonl
 # CAUSE prototype run log (local data, not atproto)
 cause/causes.json
 
+# The evolving keyword index — the pool and the verified posts are runtime data
+index/keywords.json
+index/posts.json
+index/stats.json
+
 # Shared case file the agent + background workers append findings to
 NOTES.md
 
