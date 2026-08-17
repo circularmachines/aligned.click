@@ -252,50 +252,86 @@ def keyword_stats(views: list[dict], candidates: list[dict],
 # --- the two LLM calls -------------------------------------------------------
 
 
-def quality_check(posts: list[dict], criteria: str = CRITERIA) -> list[dict]:
-    """Judge each candidate post against the criteria.
+def _find_json_object(text: str) -> str:
+    """The model may wrap a JSON object in a code fence or add a stray line;
+    the object itself is the only part that matters."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", text, flags=re.S)
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end < start:
+        raise ClassifyError(
+            "the classifier did not return a JSON object. Try again."
+        )
+    return text[start:end + 1]
 
-    `posts` is a list of post_index.extract() dicts. Returns one entry per
-    post: {"i", "fit": bool, "why": str}. The judge is GreenPT v4 flash.
+
+JUDGE_CONCURRENCY = int(os.environ.get("INDEX_JUDGE_CONCURRENCY", "4"))
+
+
+def _judge_post(index: int, post: dict, criteria: str) -> dict:
+    """Judge one post against the criteria, in isolation.
+
+    One call per post, so no verdict is conditioned on the others: a batch
+    prompt lets order and leniency bleed between posts, and every label in it
+    stops being an independent sample of the judge — the wrong raw material
+    for a binary classifier trained on these judgements. A post the model
+    drops is a visible parse error, not a silent negative.
     """
-    if not posts:
-        return []
-    lines = "\n".join(
-        f"[{i}] @{p.get('handle')} {(p.get('createdAt') or '').replace('T', ' ')[:16]}"
-        f" — {' '.join((p.get('text') or '').split())[:320]}"
-        for i, p in enumerate(posts))
     content = _completion_tolerant([
         {"role": "system", "content":
-            "You decide whether a Bluesky post belongs in a public index of "
+            "You decide whether one Bluesky post belongs in a public index of "
             "grassroots environmental work. The index's definition of "
             "belonging is the criteria below; apply it strictly and refuse "
             "when the post does not clearly fit.\n"
             f"<criteria>\n{criteria}\n</criteria>"},
         {"role": "user", "content":
-            "The posts to judge:\n" + lines + "\n\nReturn ONLY a JSON array, "
-            "one object per post: {\"i\": <index>, \"fit\": true|false, "
+            "The post to judge:\n"
+            f"[{index}] @{post.get('handle')} "
+            f"{(post.get('createdAt') or '').replace('T', ' ')[:16]} — "
+            f"{' '.join((post.get('text') or '').split())[:320]}\n\n"
+            "Return ONLY a JSON object: {\"i\": <index>, \"fit\": true|false, "
             "\"why\": \"<one short reason naming the grassroots actor or the "
             "reason it fails>\"}. If unsure, fit is false. No prose around "
             "the JSON."},
     ])
     try:
-        decisions = json.loads(_find_json_array(content))
+        decision = json.loads(_find_json_object(content))
     except json.JSONDecodeError as e:
         raise ClassifyError(f"quality check JSON did not parse ({e})") from None
-    if not isinstance(decisions, list):
-        raise ClassifyError("quality check returned an object, not an array")
-    result: list[dict] = []
-    for d in decisions:
-        if not isinstance(d, dict):
-            continue
-        try:
-            idx = int(d.get("i"))
-        except (TypeError, ValueError):
-            continue
-        if 0 <= idx < len(posts):
-            result.append({"i": idx, "fit": bool(d.get("fit")),
-                           "why": str(d.get("why", ""))[:200]})
-    return result
+    if not isinstance(decision, dict):
+        raise ClassifyError("quality check returned a non-object")
+    try:
+        got = int(decision.get("i"))
+    except (TypeError, ValueError):
+        got = -1
+    if got != index:
+        raise ClassifyError(
+            f"quality check answered post {got}, asked for {index}")
+    return {"i": index, "fit": bool(decision.get("fit")),
+            "why": str(decision.get("why", ""))[:200]}
+
+
+def quality_check(posts: list[dict], criteria: str = CRITERIA) -> list[dict]:
+    """Judge each candidate post against the criteria, in parallel.
+
+    `posts` is a list of post_index.extract() dicts. Returns one entry per
+    post: {"i", "fit": bool, "why": str}. The judge is GreenPT v4 flash.
+
+    One independent call per post, up to JUDGE_CONCURRENCY in flight, so the
+    latency of the batch is one post's call, not ten serialised — and the
+    labels are independent samples rather than one biased batch.
+    """
+    if not posts:
+        return []
+    results: list[dict] = []
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=JUDGE_CONCURRENCY) as pool:
+        futures = [(i, pool.submit(_judge_post, i, p, criteria))
+                   for i, p in enumerate(posts)]
+        for i, future in futures:
+            results.append((i, future.result()))
+    return [r for _, r in sorted(results)]
 
 
 def harvest_keywords(posts: list[dict], seed: str, limit: int = 3) -> list[str]:
@@ -316,8 +352,17 @@ def harvest_keywords(posts: list[dict], seed: str, limit: int = 3) -> list[str]:
             "environmental work. Given example posts that already fit the "
             "index, you name terms (1-3 words each) that would retrieve more "
             "posts like them: the kind of activity, the kind of group, common "
-            "event names. Skip anything that is just the seed keyword or an "
-            "obvious duplicate of it. Skip brand names and specific places."},
+            "event names.\n"
+            "How a term is matched, exactly: a single word is searched as that "
+            "word; a multi-word term is searched as the exact phrase in that "
+            "order — it does NOT match posts that only contain some of those "
+            "words. There is no OR-ing and no word-by-word matching. So a term "
+            "like \"repair cafe\" retrieves posts containing the phrase "
+            "\"repair cafe\", and a term like \"mending\" retrieves posts "
+            "containing that word. Name phrases that genuinely occur together "
+            "in that order; when in doubt, prefer a good single word.\n"
+            "Skip anything that is just the seed keyword or an obvious "
+            "duplicate of it. Skip brand names and specific places."},
         {"role": "user", "content":
             f"The seed keyword: {seed}\nExample fitting posts:\n" + lines +
             "\n\nReturn ONLY a JSON array of new search terms, at most "

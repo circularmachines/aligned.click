@@ -24,6 +24,9 @@ index/keywords.json
 index/posts.json
 index/stats.json
 
+# The feed builder's runtime state — one file, one record per feed
+feeds/feeds.json
+
 # Shared case file the agent + background workers append findings to
 NOTES.md
 

@@ -1,0 +1,302 @@
+<!doctype html>
+<!-- aligned.click — the feed builder's front door.
+     Copyright (C) 2026 Johan Lagerlöf.
+     Licensed under the GNU AGPL v3 or later. See LICENSE. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>aligned.click — feeds</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6f5e">
+<!-- Served by feeds/web.py, which sends the CSP as a header. `connect-src
+     'self' https:` stays open because atproto-post draws each confirmed post
+     live from whichever PDS hosts its author — nothing here stores post text
+     (see reader/chat.html for the same reason). script-src allows 'unsafe-inline'
+     for the one setup script below; every library is from /shared/. -->
+<script type="module" src="/shared/atproto-wc.js"></script>
+<link rel="stylesheet" href="/shared/theme.css">
+<style>
+  :root {
+    color-scheme: light dark;
+    --accent: #2f6f5e; --accent-fill: #2f6f5e;
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #6b7280;
+    --border: #e5e7eb; --panel: #f7f8f8;
+    --atproto-accent: var(--accent);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent: #4e9d85; --accent-fill: #2a6353;
+      --bg: #17181c; --fg: #e8e8e8; --muted: #9aa0a6;
+      --border: #2c2d33; --panel: #1f2025;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); }
+  body {
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  #app { max-width: 760px; margin: 0 auto; padding: 20px 16px 64px; }
+  header { border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 16px; }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: -0.01em; }
+  header h1 .dot { color: var(--accent); }
+  header .tagline { font-size: 13px; color: var(--muted); margin: 2px 0 0; }
+  .ask { margin-bottom: 18px; }
+  .ask label { font-size: 14px; font-weight: 600; display: block; margin-bottom: 6px; }
+  .row { display: flex; gap: 8px; }
+  .row input {
+    flex: 1; font: inherit; font-size: 16px; padding: 12px; min-height: 44px;
+    border: 1px solid var(--border); border-radius: 8px; background: transparent;
+    color: inherit;
+  }
+  .row button {
+    font: inherit; font-size: 16px; padding: 0 16px; min-height: 44px;
+    border: 0; border-radius: 8px; background: var(--accent-fill); color: #fff;
+    cursor: pointer; white-space: nowrap;
+  }
+  .row button:disabled { opacity: 0.6; cursor: wait; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .feed {
+    border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+    margin-bottom: 14px; background: var(--panel);
+  }
+  .feed h2 { font-size: 15px; margin: 0 0 2px; }
+  .feed .meta { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .feed .toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
+  .feed .toolbar button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--fg);
+    cursor: pointer;
+  }
+  .feed .toolbar button.solid { background: var(--accent-fill); color: #fff; border: 0; }
+  .feed .toolbar button:disabled { opacity: 0.6; cursor: wait; }
+  .kw { font-size: 12px; color: var(--muted); margin: 10px 0 0; display: flex; flex-wrap: wrap; gap: 4px; }
+  .kw .chip { border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
+  .kw .chip.untried { color: var(--muted); }
+  .kw .chip.pass { color: var(--accent); border-color: var(--accent); }
+  .kw .chip.fail { color: #c0392b; border-color: #c0392b; opacity: 0.7; }
+  .kw .chip.error { color: #c0392b; border-color: #c0392b; }
+  .lastcrawl { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+  .lastcrawl.ok { color: var(--accent); }
+  .lastcrawl.bad { color: #c0392b; }
+  .posts { display: grid; gap: 10px; }
+  .posts atproto-post { display: block; }
+  .posts .empty { font-size: 13px; color: var(--muted); }
+  .kv { font-size: 12px; color: var(--muted); margin: 8px 0 0; word-break: break-word; }
+  .error { color: #c0392b; font-size: 13px; margin-top: 8px; white-space: pre-wrap; }
+  footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid var(--border);
+           font-size: 12px; color: var(--muted); }
+  footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>aligned<span class="dot">.</span>click <span style="font-weight:400">— feeds</span></h1>
+    <p class="tagline">Tell me what you want to see more of; the posts come in as they fit.</p>
+  </header>
+
+  <section class="ask">
+    <label for="q">What types of posts do you want to see?</label>
+    <div class="row">
+      <input id="q" type="text" placeholder="posts about people repairing stuff"
+             autocomplete="off" maxlength="300">
+      <button id="add">Create</button>
+    </div>
+    <p class="hint">Your words are the criteria — no setup, no decoding. The first
+      search terms are planted from them, and the crawler looks for more as it goes.</p>
+  </section>
+
+  <main id="feeds"></main>
+  <div class="error" id="error" hidden></div>
+
+  <footer>
+    State lives in <code>feeds/feeds.json</code>. Start the loop with
+    <code>python3 feeds/crawl.py --interval 1800</code>, or use <b>Crawl one</b>
+    per feed here.
+  </footer>
+</div>
+
+<script>
+  // The one script that talks to the server; every post card is drawn by
+  // atproto-post directly from the network, and none of its text is stored here.
+  const FEEDS = document.getElementById("feeds");
+  const ERROR = document.getElementById("error");
+  const ADD = document.getElementById("add");
+  const Q = document.getElementById("q");
+  let refreshTimer = null;
+  let crawling = false;
+
+  function esc(s) {
+    return String(s ?? "").replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+  }
+
+  function showError(msg) {
+    ERROR.textContent = msg;
+    ERROR.hidden = !msg;
+  }
+
+  function render(feeds) {
+    const ids = Object.keys(feeds).sort().reverse();
+    if (ids.length === 0) {
+      FEEDS.innerHTML = '<div class="feed"><p class="empty">No feeds yet — ask for one above.</p></div>';
+      return;
+    }
+    FEEDS.innerHTML = "";
+    for (const id of ids) {
+      const feed = feeds[id];
+      const card = document.createElement("article");
+      card.className = "feed";
+      const keywords = feed.keywords || [];
+      const chips = keywords
+        .map(k => {
+          const label = k.status === "candidate" ? "untried" : k.status;
+          return `<span class="chip ${esc(label)}">${esc(k.keyword)}</span>`;
+        })
+        .join("\n");
+      // The verdict of the most recent crawl: the newest `tested` keyword.
+      const tested = keywords
+        .filter(k => k.tested)
+        .sort((a, b) => (b.tested || "").localeCompare(a.tested || ""))[0];
+      const pending = keywords.some(k => k.status === "candidate");
+      let lastCrawl = "";
+      if (tested) {
+        const rate = tested.pass_rate == null ? "?" : `${Math.round(tested.pass_rate * 100)}%`;
+        const emoji = tested.status === "pass" ? "ok" : "bad";
+        lastCrawl = `<p class="lastcrawl ${emoji}">last crawl: “${esc(tested.keyword)}” → ` +
+          `${esc(tested.status)} (fit ${rate}, ${tested.posts_confirmed} of ${tested.posts_seen})</p>`;
+      } else if (pending) {
+        lastCrawl = `<p class="lastcrawl">no crawl yet.</p>`;
+      }
+      let postsHtml = '<div class="posts">';
+      const uris = Object.keys(feed.posts || {});
+      if (uris.length === 0) {
+        postsHtml += '<div class="empty">No posts yet. Crawl, or wait for the loop.</div>';
+      }
+      for (const uri of uris) {
+        postsHtml += `<atproto-post src="${esc(uri)}"></atproto-post>`;
+      }
+      postsHtml += "</div>";
+
+      card.innerHTML = `
+        <h2>${esc(feed.text)}</h2>
+        <div class="meta">${uris.length} post(s) · created ${esc(feed.createdAt)}</div>
+        <div class="toolbar">
+          <button class="solid" data-crawl="${esc(id)}">Crawl one</button>
+          <button data-remove="${esc(id)}">Remove</button>
+        </div>
+        ${lastCrawl}
+        <div class="posts">${/* postsHtml already holds its own .posts */ ""}</div>
+        <p class="kw">${chips || '(no keywords yet)'}</p>`;
+      // Rebuild the posts node properly (innerHTML above would have been fine
+      // for atproto-post, but this keeps one source of truth).
+      card.querySelector(".posts").innerHTML = postsHtml;
+      FEEDS.appendChild(card);
+    }
+    for (const b of FEEDS.querySelectorAll("[data-crawl]")) {
+      b.addEventListener("click", () => crawl(b.dataset.crawl, b));
+    }
+    for (const b of FEEDS.querySelectorAll("[data-remove]")) {
+      b.addEventListener("click", () => remove(b.dataset.remove));
+    }
+    // render() rebuilt the feed list, which resurrected every button — re-assert
+    // the disabled state the poller set (and keep the poll running if crawling).
+    setIndicator();
+  }
+
+  async function refresh() {
+    try {
+      const r = await fetch("/api/feeds", { headers: { Accept: "application/json" } });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      crawling = !!data.crawling;
+      if (!crawling && data.last_error) showError(data.last_error);
+      else if (!crawling) showError("");
+      setIndicator();
+      render(data.feeds || {});
+    } catch (e) {
+      showError(`could not refresh feeds: ${e}`);
+    }
+  }
+
+  function setIndicator() {
+    ADD.disabled = crawling;
+    for (const b of FEEDS.querySelectorAll("button")) b.disabled = crawling;
+    if (crawling) {
+      ADD.textContent = "Crawling…";
+      if (!refreshTimer) refreshTimer = setInterval(refresh, 4000);
+    } else {
+      ADD.textContent = "Create";
+      if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+    }
+  }
+
+  async function addFeed() {
+    const text = Q.value.trim();
+    if (!text) return;
+    showError("");
+    ADD.disabled = true;
+    ADD.textContent = "Creating…";
+    try {
+      const r = await fetch("/api/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      Q.value = "";
+      await refresh();
+    } catch (e) {
+      showError(`could not create feed: ${e}`);
+    } finally {
+      ADD.disabled = false;
+      ADD.textContent = "Create";
+    }
+  }
+
+  async function crawl(id, button) {
+    showError("");
+    button.disabled = true;
+    button.textContent = "Crawling…";
+    try {
+      const r = await fetch("/api/crawl", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      crawling = true;
+      setIndicator();
+      await refresh();
+    } catch (e) {
+      showError(`could not start crawl: ${e}`);
+      button.disabled = false;
+      button.textContent = "Crawl one";
+    }
+  }
+
+  async function remove(id) {
+    showError("");
+    try {
+      const r = await fetch("/api/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      await refresh();
+    } catch (e) {
+      showError(`could not remove feed: ${e}`);
+    }
+  }
+
+  ADD.addEventListener("click", addFeed);
+  Q.addEventListener("keydown", e => { if (e.key === "Enter") addFeed(); });
+  refresh();
+</script>
+</body>
+</html>
