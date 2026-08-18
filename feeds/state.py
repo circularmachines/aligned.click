@@ -8,8 +8,9 @@ Each feed owns everything it needs in one record:
 
 - **text** — the literal answer, which is also the criteria the quality check
   judges posts against;
-- **keywords** — the pool, seeded from the answer and harvested from posts that
-  fit, by the feed's own crank (see judge.py);
+- **keywords** — the pool, seeded once from the answer when the feed is
+  created (harvest.py) and worked continuously by the crawler (judge.py
+  judges, crawl.py plays the pool out);
 - **posts** — the posts that matched, ready to be shown.
 
 `feeds.json` is `{id: feed}`. Two unrelated feeds share nothing, which is the
@@ -30,6 +31,22 @@ PASS_RATE = float(os.environ.get("FEEDS_PASS_RATE", "0.2"))
 POSTS_PER_KEYWORD = int(os.environ.get("FEEDS_POSTS", "10"))
 WINDOW_DAYS = int(os.environ.get("FEEDS_WINDOW_DAYS", "30"))
 MAX_CLASSIFY_RETRIES = int(os.environ.get("FEEDS_MAX_RETRIES", "3"))
+
+# The feed is "assembled" (status: ready) once this many posts sit on it. The
+# assembly loop stops early ONLY when this is reached; topics whose supply is
+# thinner get status: stalled with whatever they found.
+FEEDS_GOAL = int(os.environ.get("FEEDS_GOAL", "20"))
+
+# Hard cap on assembly cycles of one feed. A stubborn topic must not spend the
+# API budget forever: after this many keyword trials/mine-passes the loop
+# gives up and marks the feed stalled.
+FEEDS_MAX_CYCLES = int(os.environ.get("FEEDS_MAX_CYCLES", "40"))
+
+# How deep mining goes back into one approved keyword before we call it drained.
+# The first trial judges POSTS_PER_KEYWORD; each mine pass judges this many
+# more (pagination going further into the window, which we cannot get in one
+# sort=latest page).
+MINE_BATCH = int(os.environ.get("FEEDS_MINE_BATCH", "10"))
 
 # --- files --------------------------------------------------------------------
 
@@ -68,6 +85,9 @@ def new_feed(text: str) -> dict:
         "id": _now(),
         "text": text,
         "createdAt": _now(),
+        "goal": FEEDS_GOAL,
+        "status": "assembling",   # assembling → ready (goal hit) | stalled (gave up)
+        "cycles": 0,
         "keywords": [],
         "posts": {},
     }
@@ -79,7 +99,7 @@ def new_feed(text: str) -> dict:
 def new_keyword(term: str, found_by: str) -> dict:
     return {"keyword": term, "found_by": found_by, "status": "candidate",
             "pass_rate": None, "tested": None, "posts_seen": 0,
-            "posts_confirmed": 0}
+            "posts_confirmed": 0, "volume": 0}
 
 
 def _norm(term: str) -> str:

@@ -10,18 +10,16 @@
 decoding step:
 
 1. the literal answer becomes the criteria the quality check judges posts
-   against (see crawl.criteria);
-2. a few keywords are planted for it (see judge.harvest_keywords), seeded
-   from the answer itself;
-3. crawl.py works the pool: the posts that fit are stored on the feed ready to
-   be shown by `show`.
+   against (see judge.criteria);
+2. a few keywords are planted for it, harvested from the answer itself
+   (feed-creation only — see harvest.py);
+3. crawl.py works the pool continuously: the posts that fit are stored on the
+   feed ready to be shown by `show`.
 
 `show` prints those posts, one line each. `remove` drops a feed entirely — its
 keywords and posts go with it, since nothing is shared.
 """
 import argparse
-import json
-import re
 import sys
 from pathlib import Path
 
@@ -30,53 +28,8 @@ sys.path.insert(0, str(ROOT.parent / "tools"))
 sys.path.insert(0, str(ROOT.parent / "cause"))
 
 import state  # noqa: E402
-from classify import ClassifyError, _completion, _find_json_array  # noqa: E402
-
-
-def seed_keywords(text: str) -> list[str]:
-    """The first search terms for a brand-new feed, from its literal answer.
-
-    The index experiment started from a hand-written seeds.txt; a general feed
-    builder cannot — the answer is the seed. The same call shape as the
-    judge's harvest (judge.harvest_keywords), just aimed at the request text
-    instead of example posts.
-    """
-    content = _completion([
-        {"role": "system", "content":
-            "You give a brand-new Bluesky feed its first search terms. Given "
-            "what the reader asked to see, name 1-3 word search terms "
-            "(lowercase, no quotes) that would retrieve that kind of post.\n"
-            "How a term is matched, exactly: a single word is searched as that "
-            "word; a multi-word term is searched as the exact phrase in that "
-            "order — it does NOT match posts that only contain some of those "
-            "words. There is no OR-ing and no word-by-word matching. So a "
-            "term like \"repair cafe\" retrieves posts containing the phrase "
-            "\"repair cafe\", and a term like \"mending\" retrieves posts "
-            "containing that word. Name phrases that genuinely occur together "
-            "in that order; when in doubt, prefer a good single word. "
-            "Skip brand names and specific places."},
-        {"role": "user", "content":
-            f"The request: {text}\n\nReturn ONLY a JSON array of search "
-            "terms, 4 to 8 of them. No prose around the JSON."},
-    ])
-    return _parse_terms(content)
-
-
-def _parse_terms(content: str) -> list[str]:
-    try:
-        terms = json.loads(_find_json_array(content))
-    except json.JSONDecodeError as e:
-        raise ClassifyError(f"terms JSON did not parse ({e})") from None
-    if not isinstance(terms, list):
-        raise ClassifyError("terms call returned an object, not an array")
-    cleaned: list[str] = []
-    for t in terms:
-        if not isinstance(t, str):
-            continue
-        t = t.strip().strip('"').lower()
-        if 1 < len(t) <= 40 and t not in cleaned:
-            cleaned.append(t)
-    return cleaned
+import harvest  # noqa: E402
+from classify import ClassifyError  # noqa: E402
 
 
 def add(text: str) -> dict:
@@ -87,7 +40,7 @@ def add(text: str) -> dict:
 
     feed = state.new_feed(text)
     feeds = state.load_feeds()
-    seeds = seed_keywords(text)
+    seeds = harvest.seed_keywords(text)
     feed["keywords"].extend(state.new_from([], seeds, "seed"))
     feeds[feed["id"]] = feed
     state.save_feeds(feeds)

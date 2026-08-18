@@ -103,16 +103,17 @@
       <button id="add">Create</button>
     </div>
     <p class="hint">Your words are the criteria — no setup, no decoding. The first
-      search terms are planted from them, and the crawler looks for more as it goes.</p>
+      search terms are planted from them, and the crawler assembles the feed toward
+      its goal as it goes.</p>
   </section>
 
   <main id="feeds"></main>
   <div class="error" id="error" hidden></div>
 
   <footer>
-    State lives in <code>feeds/feeds.json</code>. Start the loop with
-    <code>python3 feeds/crawl.py --interval 1800</code>, or use <b>Crawl one</b>
-    per feed here.
+    State lives in <code>feeds/feeds.json</code>. Each new feed is assembled
+    here — post judgment and keyword harvesting run as separate steps, so you
+    can watch the pool grow from the confirmed posts.
   </footer>
 </div>
 
@@ -169,10 +170,16 @@
       } else if (pending) {
         lastCrawl = `<p class="lastcrawl">no crawl yet.</p>`;
       }
-      let postsHtml = '<div class="posts">';
       const uris = Object.keys(feed.posts || {});
+      const goal = feed.goal || 0;
+      const status = feed.status || "assembling";
+      const statusTxt = status === "ready" ? "ready" : status === "stalled" ? "stalled" : "assembling";
+      const progress = goal
+        ? `${uris.length}/${goal} · ${statusTxt}` + (feed.note ? ` · ${esc(feed.note)}` : "")
+        : `${uris.length} post(s)`;
+      let postsHtml = '<div class="posts">';
       if (uris.length === 0) {
-        postsHtml += '<div class="empty">No posts yet. Crawl, or wait for the loop.</div>';
+        postsHtml += '<div class="empty">No posts yet — assembling…</div>';
       }
       for (const uri of uris) {
         postsHtml += `<atproto-post src="${esc(uri)}"></atproto-post>`;
@@ -181,9 +188,8 @@
 
       card.innerHTML = `
         <h2>${esc(feed.text)}</h2>
-        <div class="meta">${uris.length} post(s) · created ${esc(feed.createdAt)}</div>
+        <div class="meta">${progress} · created ${esc(feed.createdAt)}</div>
         <div class="toolbar">
-          <button class="solid" data-crawl="${esc(id)}">Crawl one</button>
           <button data-remove="${esc(id)}">Remove</button>
         </div>
         ${lastCrawl}
@@ -193,9 +199,6 @@
       // for atproto-post, but this keeps one source of truth).
       card.querySelector(".posts").innerHTML = postsHtml;
       FEEDS.appendChild(card);
-    }
-    for (const b of FEEDS.querySelectorAll("[data-crawl]")) {
-      b.addEventListener("click", () => crawl(b.dataset.crawl, b));
     }
     for (const b of FEEDS.querySelectorAll("[data-remove]")) {
       b.addEventListener("click", () => remove(b.dataset.remove));
@@ -253,28 +256,6 @@
     } finally {
       ADD.disabled = false;
       ADD.textContent = "Create";
-    }
-  }
-
-  async function crawl(id, button) {
-    showError("");
-    button.disabled = true;
-    button.textContent = "Crawling…";
-    try {
-      const r = await fetch("/api/crawl", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-      crawling = true;
-      setIndicator();
-      await refresh();
-    } catch (e) {
-      showError(`could not start crawl: ${e}`);
-      button.disabled = false;
-      button.textContent = "Crawl one";
     }
   }
 

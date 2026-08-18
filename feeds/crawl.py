@@ -1,19 +1,42 @@
 #!/usr/bin/env python3
-"""The general feed builder's loop: for each feed, work its keyword pool.
+"""The feed builder's assembly loop: for each feed, work its keyword pool
+toward the goal (see state.FEEDS_GOAL).
 
 One feed at a time, the same crank the index runs — search a keyword, judge
 the posts against *this feed's* criteria (the literal answer), keep the posts
-that fit, harvest new keywords from them. The judgment cargo is the feed's
-own, in judge.py; the index is not imported.
+that fit. The judgment cargo is the feed's own, in judge.py; the index is not
+imported.
 
-    python3 feeds/crawl.py --once                # one cycle, exit
-    python3 feeds/crawl.py --candidates 3        # three keywords this cycle
+**Post judgement and keyword harvesting are separate processes.** Judging is
+the crawler's only job: it decides which posts fit and loads them onto the
+feed, and never invents search terms. Harvesting — generating the search
+terms in the first place — happens exactly once, when the feed is created, in
+harvest.py (request.py calls seed_keywords). The crawler works the pool it
+was given; it does not grow it.
+
+Two judging phases, decided per cycle:
+
+1. **Mine** — if an approved keyword (passed the pass-rate) still has fresh
+   supply it has not judged, judge its next batch. This is how one good
+   keyword fills the feed: the first trial proves it, then the loop keeps
+   coming back to it instead of always drifting to a new word. Mining does
+   not re-harvest — the keyword is already proven.
+2. **Explore** — else, with no mineable keywords left, steering picks the next
+   candidate to judge. When the candidate pool is empty, the loop has nothing
+   left and gives up — new keywords are planted only when the feed is created.
+
+The loop stops early when the goal is reached (status: ready), and gives up —
+keeping whatever fit so far — when the pool is exhausted or the cycle cap is
+hit (status: stalled).
+
+    python3 feeds/crawl.py --once                # one cycle across feeds, exit
+    python3 feeds/crawl.py --candidates 3        # three cycles this run, exit
+    python3 feeds/crawl.py --goal                # assemble every feed to its goal
     python3 feeds/crawl.py --interval 1800       # loop forever, 30 min apart
 
 State lives in feeds/feeds.json, one record per feed as described in state.py.
 """
 import argparse
-import json
 import sys
 import time
 import urllib.error
@@ -33,89 +56,208 @@ from search_posts import build_query  # noqa: E402
 import judge  # noqa: E402
 
 
-def search_latest(term: str, limit: int) -> list[dict]:
-    """Bluesky search, newest first, only posts from the last WINDOW_DAYS.
+def search_volume(term: str) -> list[dict]:
+    """The keyword's full fresh supply in the window, uncapped by judging.
 
-    The window is applied on the post's own createdAt, client-side. A
-    multiword keyword is searched as the literal phrase. Two transports: the
-    crawler's own app password when configured, else the OAuth sidecar.
+    One page of search results is capped at 100 posts; a volume probe pulls a
+    wide window and counts how many are still inside it. This is what tells
+    the steering model whether a topic is abundant (38 fresh posts) or sparse
+    (2). Returns the fresh views themselves — the caller judges a slice and
+    parks the rest for later mining.
     """
     import datetime
 
     query = build_query([term])
     if apppass.configured():
-        views = apppass.xrpc_get(
-            "app.bsky.feed.searchPosts",
-            {"q": query, "sort": "latest", "limit": max(limit * 6, 60)})["posts"]
+        views = apppass.xrpc_get("app.bsky.feed.searchPosts",
+                                 {"q": query, "sort": "latest", "limit": 100})["posts"]
     else:
         from bsky import get
         views = get("app.bsky.feed.searchPosts",
-                    {"q": query, "sort": "latest", "limit": max(limit * 6, 60)})["posts"]
+                    {"q": query, "sort": "latest", "limit": 100})["posts"]
     cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
         days=state.WINDOW_DAYS)
     fresh: list[dict] = []
     for v in views:
         when = judge.parse_created(((v.get("record") or {}).get("createdAt") or ""))
-        if when is None or when >= cutoff:
+        if when is not None and when >= cutoff:
             fresh.append(v)
-        if len(fresh) >= limit:
-            break
     return fresh
 
 
-def criteria(feed: dict) -> str:
-    """The quality check's criteria for a feed: the literal answer, verbatim.
-
-    This is the whole simplification. A feed request is not decoded into
-    anything — the reader's words *are* the standard of fit, in the same shape
-    the index's CRITERIA uses for its one cause.
-    """
-    return (
-        "A post belongs in the feed when it matches, in the reader's own "
-        "words, what they asked to see. The request:\n"
-        f"{feed['text']}\n"
-        "The subject or speaker is the kind of thing the request names. It "
-        "does NOT belong when it is only vaguely related, an ad, news, or "
-        "unrelated happenings. If you are unsure whether a post fits, it fits."
-    )
-
-
-def explore_keyword(feed: dict, kw: dict) -> list[dict]:
-    """The quality check + harvest for one keyword of one feed.
-
-    Mutates the feed record and the keyword; returns freshly harvested
-    keywords (deduped against the feed's pool) so the caller adds them flat.
-    The keyword is the unit of failure: errors mark it 'error' instead of
-    killing the cycle.
-    """
-    term = kw["keyword"]
-    kw["tested"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-    views = search_latest(term, state.POSTS_PER_KEYWORD)
-    kw["posts_seen"] = len(views)
+def _judge(feed: dict, kw: dict, views: list[dict], limit: int) -> bool:
+    """Judge up to `limit` views against the feed's criteria: run the quality
+    check, fold the fitting posts into the feed, update the keyword's stats.
+    This is the ONLY place posts are ever judged. Returns True when more was
+    judged (even if nothing fit)."""
     if not views:
-        kw["status"] = "pass"
-        kw["pass_rate"] = 0.0
-        kw["note"] = f"no posts in the last {state.WINDOW_DAYS} days"
-        return []
-
+        return False
     candidates = [extract(v) for v in views]
-    scores = judge.quality_check(candidates, criteria(feed))
-    fitting = [s for s in scores if s.get("fit")]
-    kw["pass_rate"] = len(fitting) / len(scores) if scores else 0.0
-    kw["posts_confirmed"] = len(fitting)
-
-    # Whatever the outcome, the fitting posts are the feed.
+    scores = judge.quality_check(candidates, judge.criteria(feed))
+    confirmed = sum(1 for s in scores if s.get("fit"))
+    kw["posts_seen"] = kw.get("posts_seen", 0) + len(scores)
+    kw["posts_confirmed"] = kw.get("posts_confirmed", 0) + confirmed
+    kw["pass_rate"] = (kw["posts_confirmed"] / kw["posts_seen"]
+                       if kw["posts_seen"] else 0.0)
+    kw["whys"] = [{"fit": bool(s.get("fit")), "why": s.get("why", "")}
+                  for s in scores][-10:]
     for entry in judge.campaign_posts(candidates, scores):
         feed["posts"][entry["uri"]] = entry
+    return True
 
-    if kw["pass_rate"] >= state.PASS_RATE:
-        kw["status"] = "pass"
-        return state.new_from(
-            feed["keywords"], judge.harvest_keywords(
-                [candidates[s["i"]] for s in fitting], term), term) if fitting else []
-    kw["status"] = "fail"
-    return []
+
+def try_keyword(feed: dict, kw: dict) -> bool:
+    """First trial of a candidate keyword: probe its volume, judge one batch.
+    Post judgement only. Returns True when the keyword passes. Nothing here
+    generates new terms — the pool was planted at feed creation (harvest.py).
+    """
+    kw["tested"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    kw.pop("drained", None)
+    views = search_volume(kw["keyword"])   # BskyError propagates to caller
+    kw["volume"] = len(views)
+    if not views:
+        kw["note"] = "no fresh posts in the window"
+        return False
+    _judge(feed, kw, views[:state.POSTS_PER_KEYWORD], state.POSTS_PER_KEYWORD)
+    if (kw.get("pass_rate") or 0.0) < state.PASS_RATE:
+        kw["status"] = "fail"
+        return False
+    kw["status"] = "pass"
+    return True
+
+
+def mine_keyword(feed: dict, kw: dict) -> bool:
+    """Mine the next MINE_BATCH posts of an approved keyword, deeper into the
+    window than the first page reached. Post judgement only — the keyword is
+    already proven; its job now is just to feed the feed. Returns True when
+    more was judged.
+    """
+    kw["tested"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    views = search_volume(kw["keyword"])   # BskyError propagates to caller
+    kw["volume"] = max(kw.get("volume", 0), len(views))
+    if not views:
+        kw["drained"] = True
+        kw["note"] = "supply exhausted inside the window"
+        return False
+    seen = set(kw.get("seen") or [])
+    fresh = [v for v in views
+             if extract(v)["uri"] not in feed["posts"]
+             and extract(v)["uri"] not in seen]
+    if not fresh:
+        kw["drained"] = True
+        kw["note"] = "no unjudged fresh posts left in the window"
+        return False
+    batch = fresh[:state.MINE_BATCH]
+    _judge(feed, kw, batch, state.MINE_BATCH)
+    kw["seen"] = list(seen | {extract(v)["uri"] for v in batch})
+    if (kw.get("pass_rate") or 0.0) < state.PASS_RATE:
+        kw["status"] = "fail"   # one deep batch of filings, no more gold
+    return True
+
+
+def _best_mineable(feed: dict) -> dict | None:
+    """The approved keyword most worth mining next: highest pass rate, not yet
+    drained, with supply still in the window. Cheap and noisy; good enough to
+    pick a mine target."""
+    mineable = [kw for kw in feed["keywords"]
+                if kw["status"] == "pass" and not kw.get("drained")]
+    if not mineable:
+        return None
+    return max(mineable,
+               key=lambda kw: (kw.get("pass_rate") or 0.0,
+                               kw.get("volume") or 0))
+
+
+def assemble(feed_id: str, goal: int | None = None, max_cycles: int | None = None) -> None:
+    """Work one feed toward its goal. Runs until ready, stalled, or cycle cap.
+
+    Post judgement only — the pool is fixed at feed creation (harvest.py);
+    the loop plays it out:
+
+    - **Mine** the best approved keyword that still has unfetched supply, else
+    - **Explore** a candidate keyword, picked by steering from the ledger (or
+      the oldest if steering says nothing usable), else
+    - **Stall** — the pool is spent; nothing new can be planted mid-crawl.
+
+    The cycle cap bounds runs on a stubborn topic. See the other two modules
+    for why the split exists: judge.py judges, harvest.py seeds.
+    """
+    goal = goal if goal is not None else state.FEEDS_GOAL
+    max_cycles = max_cycles if max_cycles is not None else state.FEEDS_MAX_CYCLES
+    feeds = state.load_feeds()
+    feed = feeds.get(feed_id)
+    if feed is None:
+        return
+    if feed.get("status") == "ready":
+        return
+    feed["status"] = "assembling"
+    state.save_feeds(feeds)
+
+    tried_this_run: set[str] = set()
+    while True:
+        feed["cycles"] = feed.get("cycles", 0) + 1
+        if len(feed["posts"]) >= goal:
+            feed["status"] = "ready"
+            state.save_feeds(feeds)
+            print(f"[{feed_id[:10]}] READY — {len(feed['posts'])}/{goal} posts",
+                  file=sys.stderr)
+            return
+        if feed["cycles"] > max_cycles:
+            feed["status"] = "stalled"
+            feed["note"] = f"cycle cap ({max_cycles}) hit with {len(feed['posts'])} posts"
+            state.save_feeds(feeds)
+            print(f"[{feed_id[:10]}] STALLED ({feed['note']})", file=sys.stderr)
+            return
+
+        try:
+            mine = _best_mineable(feed)
+            if mine:
+                mine_keyword(feed, mine)
+            else:
+                jobs = [kw for kw in feed["keywords"]
+                        if kw["status"] == "candidate"
+                        and kw["keyword"] not in tried_this_run]
+                if jobs:
+                    kw = _steer(feed, jobs, tried_this_run)
+                    if not kw:
+                        kw = jobs[0]
+                    tried_this_run.add(kw["keyword"])
+                    try_keyword(feed, kw)
+                else:
+                    feed["status"] = "stalled"
+                    feed["note"] = "candidate pool exhausted"
+                    state.save_feeds(feeds)
+                    print(f"[{feed_id[:10]}] STALLED — nothing left to try",
+                          file=sys.stderr)
+                    return
+        except ClassifyError as e:
+            # A bad LLM answer should not stall the feed — note and retry
+            # the same cycle next time.
+            feed["note"] = f"classification failed: {e}"
+        except apppass.AuthError as e:
+            feed["note"] = f"search account refused: {e}"
+            login_notice()
+        except BskyError as e:
+            feed["note"] = f"search failed: {e}"
+        except Exception as e:  # noqa: BLE001 — a bad keyword must not end the feed
+            feed["note"] = f"{type(e).__name__}: {e}"
+
+        state.save_feeds(feeds)
+
+
+def _steer(feed: dict, jobs: list[dict], tried: set[str]) -> dict | None:
+    """Ask the model which candidate to try next. Pure selection — nothing is
+    judged here. Returns the picked keyword, or None when the model chose
+    stop or gave an unusable answer (the caller falls back to the oldest)."""
+    decision = judge.steer(feed, jobs, tried)
+    if not decision:
+        return None
+    action = decision.get("action", "try")
+    if action not in ("try",):
+        return None
+    pick = decision.get("pick", "")
+    kw = next((k for k in jobs if k["keyword"].lower() == pick.lower()), None)
+    return kw
 
 
 def _session_hint(err: str) -> bool:
@@ -142,7 +284,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--candidates", type=int, default=1,
                         help="how many untried keywords one cycle tries")
     parser.add_argument("--feed", default="",
-                        help="only crawl this feed's candidate keywords")
+                        help="only crawl this feed's keywords")
+    parser.add_argument("--goal", action="store_true",
+                        help="assemble all feeds toward their goal, once")
     parser.add_argument("--interval", type=int, default=1800,
                         help="seconds between cycles (loop mode)")
     args = parser.parse_args(argv)
@@ -162,14 +306,15 @@ def main(argv: list[str] | None = None) -> None:
             return
         time.sleep(args.interval)
 
+    if args.goal:
+        for feed_id in [f for f in feeds if not args.feed or f == args.feed]:
+            assemble(feed_id)
+        return
+
     processed = 0
     hit_login_error = False
     tried_this_run = set()
     while True:
-        # The oldest feed with an untried keyword goes first, so a fresh feed
-        # starts being filled instead of waiting behind mature ones. `--feed`
-        # confines the cycle to one feed — that is what "Crawl one" on a card
-        # must mean, or a click inexplicably works another subject's keywords.
         jobs = [
             (feed["id"], kw)
             for feed in feeds.values()
@@ -191,9 +336,8 @@ def main(argv: list[str] | None = None) -> None:
         feed = feeds[feed_id]
         print(f"[{feed_id[:10]}] trying keyword: {kw['keyword']!r}",
               file=sys.stderr)
-        new_keywords: list[dict] = []
         try:
-            new_keywords = explore_keyword(feed, kw)
+            try_keyword(feed, kw)
         except BskyError as e:
             kw["note"] = f"search failed: {e}"
             if _session_hint(str(e)):
@@ -219,10 +363,9 @@ def main(argv: list[str] | None = None) -> None:
             kw["status"] = "error"
             kw["note"] = f"{type(e).__name__}: {e}"
 
-        feed["keywords"].extend(new_keywords)
         tried_this_run.add(kw["keyword"])
         state.save_feeds(feeds)
-        summary(feed_id, kw, new_keywords)
+        summary(feed_id, kw, [])
         processed += 1
 
         if hit_login_error:

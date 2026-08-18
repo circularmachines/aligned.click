@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """A small local web front door for the feed builder.
 
-Serves feeds/index.html plus one page of API:
+Serves feeds/index.html plus a small API:
 
-    GET  /api/feeds                          the feeds, with their posts
-    POST /api/add {"text": "…"}              create a feed (seeds keywords)
-    POST /api/crawl {"id": "…"}              work one candidate keyword
+    GET  /api/feeds                          the feeds, with their progress
+    POST /api/add {"text": "…"}              create a feed and assemble it
     POST /api/remove {"id": "…"}             delete a feed
+
+Creating a feed immediately enqueues it for assembly: the background worker
+runs crawl.assemble until the feed has FEEDS_GOAL posts (status: ready) or
+gives up (status: stalled). The page polls /api/feeds to watch the progress
+x/goal, with the keywords' own chips underneath.
 
 Posts are not served here. The page shows each confirmed post as an
 <atproto-post> element, which draws the post live from whichever PDS hosts its
@@ -63,11 +67,14 @@ CSP = ("default-src 'none'; script-src 'self' 'unsafe-inline'; "
        "connect-src 'self' https:; font-src 'self'; base-uri 'none'; "
        "frame-ancestors 'none'")
 
-# One crawl at a time, in a background thread so the page can watch it finish.
-_crawl_lock = threading.Lock()
+# One assembly worker at a time, so state writes are serialized. Pressing
+# Create enqueues the new feed; the worker runs crawl.assemble(feed_id) until
+# the feed is ready or stalled, then takes the next in line.
+_work_lock = threading.Lock()
+_worker = None
+_queue: list[str] = []
 _crawling = False
 _last_crawl_error = None
-_current_feed_id = ""
 
 
 def _set_crawling(value: bool) -> None:
@@ -75,9 +82,33 @@ def _set_crawling(value: bool) -> None:
     _crawling = value
 
 
-def _set_feed_id(feed_id: str) -> None:
-    global _current_feed_id
-    _current_feed_id = feed_id
+def _enqueue(feed_id: str) -> None:
+    """Put a feed on the assembly queue and make sure a worker is running."""
+    global _worker
+    with _work_lock:
+        _queue.append(feed_id)
+        if _worker is None or not _worker.is_alive():
+            _worker = threading.Thread(target=_worker_loop, daemon=True)
+            _worker.start()
+
+
+def _worker_loop() -> None:
+    global _last_crawl_error
+    while True:
+        with _work_lock:
+            if not _queue:
+                _set_crawling(False)
+                return
+            feed_id = _queue.pop(0)
+        _set_crawling(True)
+        _last_crawl_error = None
+        try:
+            crawl.assemble(feed_id)
+        except SystemExit:
+            pass
+        except Exception as e:  # noqa: BLE001 — keep the server alive, tell the page
+            _last_crawl_error = f"assembly failed: {e}"
+            print(_last_crawl_error, file=sys.stderr)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -133,8 +164,6 @@ class Handler(BaseHTTPRequestHandler):
         body = self.body()
         if self.path == "/api/add":
             return self.add(body)
-        if self.path == "/api/crawl":
-            return self.crawl(body)
         if self.path == "/api/remove":
             return self.remove(body)
         return self.reply(404, {"error": "not found"})
@@ -151,32 +180,9 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001 — a verdict/reason, not a traceback
             return self.reply(400, {"error": str(e)})
         feed_id = result["feed"]["id"]
-        return self.reply(200, {"id": feed_id, "seeds": result["seeds"]})
-
-    def crawl(self, body):
-        feed_id = body.get("id") or ""
-        feeds = state.load_feeds()
-        if feed_id not in feeds:
-            return self.reply(404, {"error": f"no feed with id {feed_id}."})
-        if _crawling:
-            return self.reply(409, {"error": "a crawl is already running."})
-        _set_feed_id(feed_id)
-        _set_crawling(True)
-        threading.Thread(target=self._run_crawl, daemon=True).start()
-        return self.reply(200, {"started": True})
-
-    def _run_crawl(self):
-        global _last_crawl_error
-        _last_crawl_error = None
-        try:
-            crawl.main(["--once", "--candidates", "1", "--feed", _current_feed_id])
-        except SystemExit:
-            pass
-        except Exception as e:  # noqa: BLE001 — keep the server alive, tell the page
-            _last_crawl_error = f"crawl failed: {e}"
-            print(_last_crawl_error, file=sys.stderr)
-        finally:
-            _set_crawling(False)
+        _enqueue(feed_id)
+        return self.reply(200, {"id": feed_id, "seeds": result["seeds"],
+                                "started": True})
 
     def remove(self, body):
         feed_id = body.get("id") or ""
