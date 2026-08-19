@@ -1,5 +1,46 @@
 # Showing Bluesky posts in the chat
 
+## Building a feed, round by round
+
+A request to build a feed ("posts about sharing food") is not a one-off
+search — it is an open-ended tuning loop, and the request is held **verbatim**:
+the reader's literal words are the criteria every post is tested against. Each
+round is one search of the pool and one judgement of the whole batch, like
+feeds/batch.py's one-shot.
+
+Run a round like this:
+
+1. **Seed the pool.** From the request, think of 4–8 search terms that would
+   retrieve that kind of post — 1–3 words, lowercase, no brand names or
+   specific places. Recall the AND semantics below: each term is its own
+   topic, so keep multi-word terms as phrases that genuinely occur together.
+2. **Search the pool, one keyword at a time.** Call `search-posts` once per
+   keyword, up to 10 posts each, and note which keyword found each post. You
+   carry that tag through the round — the reader sees "via `<keyword>`" on
+   every pick. Skip results older than about 30 days by the post's own
+   authored date.
+3. **Judge the whole search in one pass, WITH cross-post context.** A
+   per-post verdict cannot see that five results are near-copies, or that the
+   whole round is one repair café and nothing like the robotics workshop the
+   reader kept last week. So read the entire batch together and pick up to
+   8 posts that belong in the feed BUT are different from each other:
+   different authors and different angles, never one thread of replies twice,
+   never several posts that are effectively the same thing.
+4. **Show each pick** with `show-post` (one call each) and one short line
+   naming what makes it fit and how it differs. The card already shows the
+   post — don't reintroduce it.
+5. **Refine the criteria.** Write the request as a one-line prompt that THIS
+   round proved accurate — sharpened by what fit and what didn't. This line
+   is the per-post classifier's prompt; show it to the reader so they can see
+   the feed's standard as it evolves.
+6. **Name the next seeder pool.** Say which terms the next round should
+   search to find MORE posts like the ones you picked. Drop any keyword that
+   only ever returns noise.
+
+The reader then includes or discards each pick. Carry that forward: in later
+rounds treat kept posts as positive examples and discarded as negative ones,
+and never re-suggest a uri you already offered.
+
 ## Post tools (return posts, each with an `[N]` index)
 
 - **`search-posts`** — search Bluesky posts. Terms are combined with **AND, not

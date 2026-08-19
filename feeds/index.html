@@ -9,9 +9,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2f6f5e">
 <!-- Served by feeds/web.py, which sends the CSP as a header. `connect-src
-     'self' https:` stays open because atproto-post draws each confirmed post
-     live from whichever PDS hosts its author — nothing here stores post text
-     (see reader/chat.html for the same reason). script-src allows 'unsafe-inline'
+     'self' https:` stays open because atproto-post draws each pick live from
+     whichever PDS hosts its author — nothing here stores post text (see
+     reader/chat.html for the same reason). script-src allows 'unsafe-inline'
      for the one setup script below; every library is from /shared/. -->
 <script type="module" src="/shared/atproto-wc.js"></script>
 <link rel="stylesheet" href="/shared/theme.css">
@@ -55,33 +55,36 @@
   }
   .row button:disabled { opacity: 0.6; cursor: wait; }
   .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .result { margin-top: 18px; }
   .feed {
     border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
     margin-bottom: 14px; background: var(--panel);
   }
   .feed h2 { font-size: 15px; margin: 0 0 2px; }
-  .feed .meta { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
-  .feed .toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
-  .feed .toolbar button {
-    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px;
-    border: 1px solid var(--border); background: var(--bg); color: var(--fg);
-    cursor: pointer;
+  .feed .meta { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .feed h3 { font-size: 13px; margin: 12px 0 6px; }
+  .kw { margin: 0 0 10px; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+  .kw .chip { font-size: 12px; color: var(--muted); list-style: none;
+    border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
+  .batch { display: grid; gap: 10px; }
+  .pick { border: 1px solid var(--border); border-radius: 10px; padding: 10px;
+    background: var(--bg); }
+  .pick atproto-post { display: block; }
+  .pick .why { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .pick .why b { color: var(--fg); font-weight: 600; }
+  .empty { font-size: 13px; color: var(--muted); }
+  .criteria { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+  .criteria b { color: var(--fg); font-weight: 600; }
+  .settings {
+    border: 1px dashed var(--border); border-radius: 8px; padding: 8px 10px;
+    margin: 0 0 12px; background: transparent;
   }
-  .feed .toolbar button.solid { background: var(--accent-fill); color: #fff; border: 0; }
-  .feed .toolbar button:disabled { opacity: 0.6; cursor: wait; }
-  .kw { font-size: 12px; color: var(--muted); margin: 10px 0 0; display: flex; flex-wrap: wrap; gap: 4px; }
-  .kw .chip { border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
-  .kw .chip.untried { color: var(--muted); }
-  .kw .chip.pass { color: var(--accent); border-color: var(--accent); }
-  .kw .chip.fail { color: #c0392b; border-color: #c0392b; opacity: 0.7; }
-  .kw .chip.error { color: #c0392b; border-color: #c0392b; }
-  .lastcrawl { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
-  .lastcrawl.ok { color: var(--accent); }
-  .lastcrawl.bad { color: #c0392b; }
-  .posts { display: grid; gap: 10px; }
-  .posts atproto-post { display: block; }
-  .posts .empty { font-size: 13px; color: var(--muted); }
-  .kv { font-size: 12px; color: var(--muted); margin: 8px 0 0; word-break: break-word; }
+  .settings .criteria {
+    font-size: 13px; color: var(--fg); margin: 0 0 6px; line-height: 1.4;
+  }
+  .settings .criteria span { color: var(--muted); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.04em; display: block; }
+  .settings .kw { margin: 0; }
   .error { color: #c0392b; font-size: 13px; margin-top: 8px; white-space: pre-wrap; }
   footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid var(--border);
            font-size: 12px; color: var(--muted); }
@@ -92,40 +95,37 @@
 <div id="app">
   <header>
     <h1>aligned<span class="dot">.</span>click <span style="font-weight:400">— feeds</span></h1>
-    <p class="tagline">Tell me what you want to see more of; the posts come in as they fit.</p>
+    <p class="tagline">Tell me what you want to see; one round searches and picks a diverse batch.</p>
   </header>
 
   <section class="ask">
     <label for="q">What types of posts do you want to see?</label>
     <div class="row">
-      <input id="q" type="text" placeholder="posts about people repairing stuff"
+      <input id="q" type="text" placeholder="posts about sharing food"
              autocomplete="off" maxlength="300">
-      <button id="add">Create</button>
+      <button id="run">Run round</button>
     </div>
-    <p class="hint">Your words are the criteria — no setup, no decoding. The first
-      search terms are planted from them, and the crawler assembles the feed toward
-      its goal as it goes.</p>
+    <p class="hint">One shot: your words become the criteria, the pool is seeded
+      from them, the pool is searched, and the whole result goes into one call.</p>
   </section>
 
-  <main id="feeds"></main>
+  <main id="result" class="result"></main>
   <div class="error" id="error" hidden></div>
 
   <footer>
-    State lives in <code>feeds/feeds.json</code>. Each new feed is assembled
-    here — post judgment and keyword harvesting run as separate steps, so you
-    can watch the pool grow from the confirmed posts.
+    State lives in <code>feeds/feeds.json</code>. Each round searches the pool,
+    loads everything found plus the reader's history into one model context, and
+    returns 8 diverse picks.
   </footer>
 </div>
 
 <script>
   // The one script that talks to the server; every post card is drawn by
   // atproto-post directly from the network, and none of its text is stored here.
-  const FEEDS = document.getElementById("feeds");
+  const RESULT = document.getElementById("result");
   const ERROR = document.getElementById("error");
-  const ADD = document.getElementById("add");
+  const RUN = document.getElementById("run");
   const Q = document.getElementById("q");
-  let refreshTimer = null;
-  let crawling = false;
 
   function esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, c => ({
@@ -138,109 +138,64 @@
     ERROR.hidden = !msg;
   }
 
-  function render(feeds) {
-    const ids = Object.keys(feeds).sort().reverse();
-    if (ids.length === 0) {
-      FEEDS.innerHTML = '<div class="feed"><p class="empty">No feeds yet — ask for one above.</p></div>';
+  function render(feed) {
+    if (!feed) {
+      RESULT.innerHTML = '<div class="feed"><p class="empty">No feed yet — run a round above.</p></div>';
       return;
     }
-    FEEDS.innerHTML = "";
-    for (const id of ids) {
-      const feed = feeds[id];
-      const card = document.createElement("article");
-      card.className = "feed";
-      const keywords = feed.keywords || [];
-      const chips = keywords
-        .map(k => {
-          const label = k.status === "candidate" ? "untried" : k.status;
-          return `<span class="chip ${esc(label)}">${esc(k.keyword)}</span>`;
-        })
-        .join("\n");
-      // The verdict of the most recent crawl: the newest `tested` keyword.
-      const tested = keywords
-        .filter(k => k.tested)
-        .sort((a, b) => (b.tested || "").localeCompare(a.tested || ""))[0];
-      const pending = keywords.some(k => k.status === "candidate");
-      let lastCrawl = "";
-      if (tested) {
-        const rate = tested.pass_rate == null ? "?" : `${Math.round(tested.pass_rate * 100)}%`;
-        const emoji = tested.status === "pass" ? "ok" : "bad";
-        lastCrawl = `<p class="lastcrawl ${emoji}">last crawl: “${esc(tested.keyword)}” → ` +
-          `${esc(tested.status)} (fit ${rate}, ${tested.posts_confirmed} of ${tested.posts_seen})</p>`;
-      } else if (pending) {
-        lastCrawl = `<p class="lastcrawl">no crawl yet.</p>`;
-      }
-      const uris = Object.keys(feed.posts || {});
-      const goal = feed.goal || 0;
-      const status = feed.status || "assembling";
-      const statusTxt = status === "ready" ? "ready" : status === "stalled" ? "stalled" : "assembling";
-      const progress = goal
-        ? `${uris.length}/${goal} · ${statusTxt}` + (feed.note ? ` · ${esc(feed.note)}` : "")
-        : `${uris.length} post(s)`;
-      let postsHtml = '<div class="posts">';
-      if (uris.length === 0) {
-        postsHtml += '<div class="empty">No posts yet — assembling…</div>';
-      }
-      for (const uri of uris) {
-        postsHtml += `<atproto-post src="${esc(uri)}"></atproto-post>`;
-      }
-      postsHtml += "</div>";
-
-      card.innerHTML = `
+    const chips = (feed.keywords || [])
+      .map(k => `<li class="chip">${esc(k)}</li>`).join("\n");
+    const settings = `
+      <div class="settings">
+        <p class="criteria"><span>refined criteria</span>${esc(feed.criteria || feed.text)}</p>
+        <p class="criteria"><span>seed keywords</span></p>
+        <ul class="kw">${chips || '<li class="chip">(no keywords)</li>'}</ul>
+      </div>`;
+    const posts = Object.values(feed.posts || {});
+    const picks = feed.suggested || [];
+    let feedCards = '<div class="batch">';
+    if (posts.length === 0) {
+      feedCards += '<div class="empty">No posts on the feed yet.</div>';
+    }
+    for (const p of posts) {
+      feedCards += '<div class="pick">' +
+        `<atproto-post src="${esc(p.uri)}"></atproto-post>` +
+        `<div class="why"><b>via “${esc(p.found_by)}”</b>` +
+        (p.grade != null ? ` · <b>grade ${esc(p.grade)}/10</b>` : "") +
+        (p.why ? ` — ${esc(p.why)}` : "") + "</div></div>";
+    }
+    feedCards += "</div>";
+    let cards = '<div class="batch">';
+    if (picks.length === 0) {
+      cards += '<div class="empty">Nothing suggested — the search came back empty.</div>';
+    }
+    for (const p of picks) {
+      const meta = `@${esc(p.handle)} · via “${esc(p.found_by)}”`;
+      cards += '<div class="pick">' +
+        `<atproto-post src="${esc(p.uri)}"></atproto-post>` +
+        `<div class="why"><b>${meta}</b>` +
+        (p.grade != null ? ` · <b>grade ${esc(p.grade)}/10</b>` : "") +
+        (p.why ? ` — ${esc(p.why)}` : "") + "</div></div>";
+    }
+    cards += "</div>";
+    RESULT.innerHTML = `
+      <div class="feed">
         <h2>${esc(feed.text)}</h2>
-        <div class="meta">${progress} · created ${esc(feed.createdAt)}</div>
-        <div class="toolbar">
-          <button data-remove="${esc(id)}">Remove</button>
-        </div>
-        ${lastCrawl}
-        <div class="posts">${/* postsHtml already holds its own .posts */ ""}</div>
-        <p class="kw">${chips || '(no keywords yet)'}</p>`;
-      // Rebuild the posts node properly (innerHTML above would have been fine
-      // for atproto-post, but this keeps one source of truth).
-      card.querySelector(".posts").innerHTML = postsHtml;
-      FEEDS.appendChild(card);
-    }
-    for (const b of FEEDS.querySelectorAll("[data-remove]")) {
-      b.addEventListener("click", () => remove(b.dataset.remove));
-    }
-    // render() rebuilt the feed list, which resurrected every button — re-assert
-    // the disabled state the poller set (and keep the poll running if crawling).
-    setIndicator();
+        <div class="meta">round ${esc(feed.round)} · generated ${posts.length} post(s) · searched: ${esc((feed.keywords || []).length)} keyword(s)</div>
+        ${settings}
+        <h3>the feed</h3>
+        ${feedCards}
+        <h3 style="margin-top:16px">this round's picks</h3>
+        ${cards}
+      </div>`;
   }
 
-  async function refresh() {
-    try {
-      const r = await fetch("/api/feeds", { headers: { Accept: "application/json" } });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json();
-      crawling = !!data.crawling;
-      if (!crawling && data.last_error) showError(data.last_error);
-      else if (!crawling) showError("");
-      setIndicator();
-      render(data.feeds || {});
-    } catch (e) {
-      showError(`could not refresh feeds: ${e}`);
-    }
-  }
-
-  function setIndicator() {
-    ADD.disabled = crawling;
-    for (const b of FEEDS.querySelectorAll("button")) b.disabled = crawling;
-    if (crawling) {
-      ADD.textContent = "Crawling…";
-      if (!refreshTimer) refreshTimer = setInterval(refresh, 4000);
-    } else {
-      ADD.textContent = "Create";
-      if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
-    }
-  }
-
-  async function addFeed() {
+  async function run() {
     const text = Q.value.trim();
     if (!text) return;
     showError("");
-    ADD.disabled = true;
-    ADD.textContent = "Creating…";
+    RUN.disabled = true;
+    RUN.textContent = "Searching…";
     try {
       const r = await fetch("/api/add", {
         method: "POST",
@@ -249,35 +204,25 @@
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      render(data);
       Q.value = "";
-      await refresh();
     } catch (e) {
-      showError(`could not create feed: ${e}`);
+      showError(`could not run the round: ${e}`);
     } finally {
-      ADD.disabled = false;
-      ADD.textContent = "Create";
+      RUN.disabled = false;
+      RUN.textContent = "Run round";
     }
   }
 
-  async function remove(id) {
-    showError("");
-    try {
-      const r = await fetch("/api/remove", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-      await refresh();
-    } catch (e) {
-      showError(`could not remove feed: ${e}`);
-    }
-  }
-
-  ADD.addEventListener("click", addFeed);
-  Q.addEventListener("keydown", e => { if (e.key === "Enter") addFeed(); });
-  refresh();
+  RUN.addEventListener("click", run);
+  Q.addEventListener("keydown", e => { if (e.key === "Enter") run(); });
+  fetch("/api/feeds", { headers: { Accept: "application/json" } })
+    .then(r => r.json())
+    .then(d => {
+      const ids = Object.keys(d.feeds || {}).sort().reverse();
+      render(ids.length ? d.feeds[ids[0]] : null);
+    })
+    .catch(() => render(null));
 </script>
 </body>
 </html>

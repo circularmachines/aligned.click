@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
 """Create feed requests — the product's front door.
 
-    python3 feeds/request.py add "posts about people repairing stuff"
+    python3 feeds/request.py add "posts about sharing food"
     python3 feeds/request.py list
     python3 feeds/request.py show <id>
     python3 feeds/request.py remove <id>
 
 `add` is the publish button. The phrase the reader types *is* the feed — no
-decoding step:
+decoding step — and one pipeline run happens immediately:
 
-1. the literal answer becomes the criteria the quality check judges posts
-   against (see judge.criteria);
-2. a few keywords are planted for it, harvested from the answer itself
-   (feed-creation only — see harvest.py);
-3. crawl.py works the pool continuously: the posts that fit are stored on the
-   feed ready to be shown by `show`.
+1. the literal answer becomes the criteria the per-post judge tests against
+   (see judge.criteria);
+2. the judge is seeded from criteria-similar posts already in the embedded
+   post store and the fittings are kept on the feed (pipeline.py).
 
-`show` prints those posts, one line each. `remove` drops a feed entirely — its
-keywords and posts go with it, since nothing is shared.
+The store is grown separately — the keyword crawler (later work) indexes
+terms; a feed on an empty store finds nothing until then.
+
+`show` prints the feed the reader has built so far. `remove` drops a feed
+entirely — its feed record goes with it; the global keyword/post stores
+survive, since they are shared.
 """
 import argparse
 import sys
@@ -25,26 +27,28 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT.parent / "tools"))
+sys.path.insert(0, str(ROOT.parent / "index"))
 sys.path.insert(0, str(ROOT.parent / "cause"))
+sys.path.insert(0, str(ROOT))
 
 import state  # noqa: E402
-import harvest  # noqa: E402
+import pipeline  # noqa: E402
 from classify import ClassifyError  # noqa: E402
 
 
 def add(text: str) -> dict:
-    """Create the feed, plant its first keywords, and report."""
+    """Create the feed and run one pipeline pass: seed from the post store,
+    judge. Nothing is searched or embedded here — that is the crawler's job."""
     if not text.strip():
         raise ValueError("the request is empty — say what kind of posts you "
                          "want to see more of.")
 
     feed = state.new_feed(text)
     feeds = state.load_feeds()
-    seeds = harvest.seed_keywords(text)
-    feed["keywords"].extend(state.new_from([], seeds, "seed"))
     feeds[feed["id"]] = feed
     state.save_feeds(feeds)
-    return {"feed": feed, "seeds": seeds}
+    pipeline.run(feed["id"], feeds)
+    return {"feed": feed}
 
 
 def list_feeds() -> None:
@@ -55,10 +59,11 @@ def list_feeds() -> None:
         return
     print(f"{len(feeds)} feed(s):")
     for fid, feed in sorted(feeds.items()):
-        candidates = sum(1 for k in feed["keywords"] if k["status"] == "candidate")
+        included = len(feed.get("included") or {})
+        suggested = len(feed.get("suggested") or [])
         print(f"  {fid[:19]}  \"{feed['text']}\"  "
-              f"{len(feed['posts'])} post(s), {len(feed['keywords'])} "
-              f"keyword(s), {candidates} to try")
+              f"{included} kept, {len(feed['keywords'])} keyword(s), "
+              f"{suggested} awaiting a verdict")
 
 
 def show(fid: str) -> None:
@@ -68,15 +73,15 @@ def show(fid: str) -> None:
     if not feed:
         print(f"no feed with id {fid}.", file=sys.stderr)
         sys.exit(1)
-    posts = list(feed["posts"].values())
-    print(f"\"{feed['text']}\" — {len(posts)} post(s):")
-    if not posts:
-        print("  (empty — crawl it: python3 feeds/crawl.py --once, or wait "
-              "for the loop)", file=sys.stderr)
-        return
-    for i, p in enumerate(posts, 1):
-        print(f"  {i}. @{p['handle']}  {p['createdAt']}  {p['uri']}")
-        print(f"     {' '.join((p['text'] or '').split())[:200]}")
+    included = feed.get("included") or {}
+    print(f"\"{feed['text']}\" — {len(included)} kept post(s), round "
+          f"{feed.get('rounds', 0)}:")
+    if not included:
+        print("  (empty — run the pipeline again: python3 feeds/pipeline.py "
+              f"{feed['id'][:19]})", file=sys.stderr)
+    for i, p in enumerate(included.values(), 1):
+        print(f"  {i}. @{p.get('handle')}  {p.get('createdAt')}  {p['uri']}")
+        print(f"     {' '.join((p.get('text') or '').split())[:200]}")
         if p.get("why"):
             print(f"     why: {p['why']}")
 
@@ -115,11 +120,9 @@ def main() -> None:
             feed = result["feed"]
             print(f"feed {feed['id']} created")
             print(f"  answer: {feed['text']}")
-            print(f"  planted {len(result['seeds'])} keyword(s): "
-                  f"{', '.join(result['seeds'])}")
-            print("  now crawl it: python3 feeds/crawl.py --once")
-            print("  then show posts: python3 feeds/request.py show "
-                  f"{feed['id'][:19]}")
+            print(f"  {len(feed.get('posts') or {})} post(s) judged fit so far — "
+                  f"run again to pick up what the crawler has since indexed: "
+                  f"python3 feeds/pipeline.py {feed['id'][:19]}")
         elif args.command == "list":
             list_feeds()
         elif args.command == "show":

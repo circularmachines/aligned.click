@@ -1,34 +1,34 @@
-"""Post classification — the crawler's continuous process, self-contained.
+"""Per-post classification — the classifier that decides ONE post, self-contained.
 
 The index experiment grows one public index from a fixed CRITERIA; a feed uses
 the reader's own literal answer, stored on the feed, so none of the index's
-state or thresholds belong here. This module is the whole LLM cargo of
-*judging*: the quality check (does a post fit the criteria?) and the steering
-that picks which candidate keyword's supply to judge next. Feeds import only
-this — not index/growth.py, not index/state.
+state or thresholds belong here. This module is the per-post judge: given one
+post and the feed's criteria, does it fit?
 
-**Post judgement and keyword harvesting are separate processes.** Judging runs
-continuously in crawl.py: it decides which posts fit and loads them onto the
-feed, and never invents search terms. Keyword harvesting — generating the
-search terms themselves — happens only once, when the feed is created, in
-harvest.py (request.py calls harvest.seed_keywords). The crawler works the
-pool it was given; it does not grow it.
+**Per-post classification and batch selection are different tools.** A feed
+round (batch.py) loads the whole search into one model context and picks a
+diverse set — that is how feeds get cross-post context. This module remains
+for the single-post verdict: one independent GreenPT call per post, run in
+parallel (JUDGE_CONCURRENCY in flight), so no verdict is conditioned on the
+others. A post the model drops is a visible parse error, not a silent
+negative.
 
-The judging call is one independent GreenPT call per post, run in parallel
-(JUDGE_CONCURRENCY in flight), so no verdict is conditioned on the others: a
-batch prompt lets order and leniency bleed between posts, and every label
-stops being an independent sample — the wrong raw material for a binary
-classifier trained on these judgements. A post the model drops is a visible
-parse error, not a silent negative.
+Two separate processes, on purpose:
 
-`criteria(feed)` builds the judgement standard from the reader's own words;
-`quality_check` is the per-post judge; `campaign_posts` folds fitting posts
-into the feed; `parse_created` is the crawler's clock helper. The predictive
-steering lives here too — it decides the *next thing to judge*, which is
-judging's business, not harvesting's.
+- `quality(posts)` — the general-quality grade (0-10), a property of the post
+  itself. Computed once, stored on the post, reused by every feed. The prompt
+  carries no criteria, so it is fully static and cacheable.
+- `quality_check(posts, criteria_text)` — the binary feed-fit decision, one
+  independent GreenPT call per post, run in parallel (JUDGE_CONCURRENCY in
+  flight). This is the per-feed half: the criteria (the feed's own words) is
+  the only per-feed text, and it sits at the end of the prompt so the static
+  prefix is shared across feeds.
+
+`campaign_posts` folds the fitting posts into a list of feed entries;
+`parse_created` is the clock helper.
 
 The call talks to GreenPT v4 flash through cause/classify's _completion, the
-same transport the index uses.
+same transport the product uses everywhere.
 """
 
 import datetime
@@ -46,7 +46,7 @@ _model_busy_hint = ""
 
 
 def _completion_tolerant(messages: list[dict]) -> str:
-    """A flaky provider must not take down a whole crawl — mark for retry."""
+    """A flaky provider must not take down a whole round — mark for retry."""
     global _model_busy_hint
     try:
         return _completion(messages)
@@ -83,49 +83,9 @@ def parse_created(iso: str):
         return None
 
 
-def criteria(feed: dict) -> str:
-    """The quality check's criteria for a feed: the literal answer, verbatim.
-
-    This is the whole simplification. A feed request is not decoded into
-    anything — the reader's words *are* the standard of fit. The final line
-    refuses generously, so pass rates are real fits, not "probably similar
-    enough".
-    """
-    return (
-        "A post belongs in the feed when it matches, in the reader's own "
-        "words, what they asked to see. The request:\n"
-        f"{feed['text']}\n"
-        "The subject or speaker is the kind of thing the request names. It "
-        "does NOT belong when it is only vaguely related, an ad, news, or "
-        "unrelated happenings. If you are unsure whether a post fits, it does "
-        "not fit."
-    )
-
-
-def _judge_post(index: int, post: dict, criteria_text: str) -> dict:
-    """Judge one post against the criteria, in isolation.
-
-    One call per post, so no verdict is conditioned on the others: a batch
-    prompt lets order and leniency bleed between posts, and every label in it
-    stops being an independent sample — the wrong raw material for a binary
-    classifier trained on these judgements. A post the model drops is a
-    visible parse error, not a silent negative.
-    """
-    content = _completion_tolerant([
-        {"role": "system", "content":
-            "You decide whether one Bluesky post belongs in a feed. Whether it "
-            "belongs is the criteria below; apply it strictly and refuse when "
-            "the post does not clearly fit.\n"
-            f"<criteria>\n{criteria_text}\n</criteria>"},
-        {"role": "user", "content":
-            "The post to judge:\n"
-            f"[{index}] @{post.get('handle')} "
-            f"{(post.get('createdAt') or '').replace('T', ' ')[:16]} — "
-            f"{' '.join((post.get('text') or '').split())[:320]}\n\n"
-            "Return ONLY a JSON object: {\"i\": <index>, \"fit\": true|false, "
-            "\"why\": \"<one short reason naming the actor or the reason it "
-            "fails>\"}. If unsure, fit is false. No prose around the JSON."},
-    ])
+def _verdict(content: str, index: int) -> dict:
+    """Parse and validate one judge reply: the object must exist, be an
+    object, and answer the post it was asked about."""
     try:
         decision = json.loads(_find_json_object(content))
     except json.JSONDecodeError as e:
@@ -139,15 +99,105 @@ def _judge_post(index: int, post: dict, criteria_text: str) -> dict:
     if got != index:
         raise ClassifyError(
             f"quality check answered post {got}, asked for {index}")
+    return decision
+
+
+def _quality_post(index: int, post: dict) -> dict:
+    """Grade one post's general quality — no criteria, so the prompt is fully
+    static and its prefix is shared and cached across every call."""
+    content = _completion_tolerant([
+        {"role": "system", "content":
+            "You grade the general quality of one Bluesky post, 0 to 10, "
+            "independent of any feed or request. Quality is about the post "
+            "itself: (a) a root post scores higher than a reply dropped into "
+            "the middle of someone else's thread; (b) original content and "
+            "discussion that live on atproto score higher than a link-only "
+            "post pointing away; (c) a person's own words and experience "
+            "score higher than automated or corporate promotion; (d) "
+            "substantive, specific posts score higher than noise. These are "
+            "preferences, not hard rules — a reply can still be a great "
+            "post."},
+        {"role": "user", "content":
+            "The post to grade:\n"
+            f"[{index}] @{post.get('handle')} "
+            f"{(post.get('createdAt') or '').replace('T', ' ')[:16]} — "
+            f"{'root post' if not post.get('replyTo') else 'reply to ' + post['replyTo']} "
+            f"— {' '.join((post.get('text') or '').split())[:320]}\n\n"
+            "Return ONLY a JSON object: {\"i\": <index>, \"grade\": <0-10>, "
+            "\"why\": \"<one short reason>\"}. grade: 10 for a genuinely "
+            "excellent post, 0 for one that is noise. No prose around the "
+            "JSON."},
+    ])
+    decision = _verdict(content, index)
+    try:
+        grade = int(decision.get("grade"))
+    except (TypeError, ValueError):
+        grade = 0
+    return {"i": index, "grade": max(0, min(10, grade)),
+            "why": str(decision.get("why", ""))[:200]}
+
+
+def quality(posts: list[dict]) -> list[dict]:
+    """The general-quality grade (0-10) for each post — the reusable part.
+
+    `posts` is a list of post_index.extract() dicts. Returns one entry per
+    post: {"i", "grade": int 0-10, "why": str}. This is independent of any
+    feed: a post is graded once and the grade is stored on it, so new feeds
+    reuse it without another call. The prompt carries no criteria — it is
+    fully static, so the provider caches its prefix.
+
+    One independent call per post, up to JUDGE_CONCURRENCY in flight.
+    """
+    if not posts:
+        return []
+    results: list[dict] = []
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=JUDGE_CONCURRENCY) as pool:
+        futures = [(i, pool.submit(_quality_post, i, p))
+                   for i, p in enumerate(posts)]
+        for i, future in futures:
+            results.append((i, future.result()))
+    return [r for _, r in sorted(results)]
+
+
+def _judge_post(index: int, post: dict, criteria_text: str) -> dict:
+    """Decide whether one post belongs in this feed — a binary yes/no.
+
+    One call per post, so no verdict is conditioned on the others: a batch
+    prompt lets order and leniency bleed between posts, and every label in it
+    stops being an independent sample. A post the model drops is a visible
+    parse error, not a silent negative.
+    """
+    content = _completion_tolerant([
+        {"role": "system", "content":
+            "You decide whether one Bluesky post belongs in a feed — a binary "
+            "yes/no. Fit is decided ONLY by the request at the end of this "
+            "prompt; nothing else counts. A post that does not clearly match "
+            "the request does not fit. If unsure, fit is false.\n"
+            "The request this post is judged against:\n"
+            f"<criteria>\n{criteria_text}\n</criteria>"},
+        {"role": "user", "content":
+            "The post to judge:\n"
+            f"[{index}] @{post.get('handle')} "
+            f"{(post.get('createdAt') or '').replace('T', ' ')[:16]} — "
+            f"{'root post' if not post.get('replyTo') else 'reply to ' + post['replyTo']} "
+            f"— {' '.join((post.get('text') or '').split())[:320]}\n\n"
+            "Return ONLY a JSON object: {\"i\": <index>, \"fit\": true|false, "
+            "\"why\": \"<one short reason naming the actor or the reason it "
+            "fails>\"}. If unsure, fit is false. No prose around the JSON."},
+    ])
+    decision = _verdict(content, index)
     return {"i": index, "fit": bool(decision.get("fit")),
             "why": str(decision.get("why", ""))[:200]}
 
 
 def quality_check(posts: list[dict], criteria_text: str) -> list[dict]:
-    """Judge each candidate post against the criteria, in parallel.
+    """Decide, for each candidate post, whether it belongs in the feed.
 
     `posts` is a list of post_index.extract() dicts. Returns one entry per
-    post: {"i", "fit": bool, "why": str}. The judge is GreenPT v4 flash.
+    post: {"i", "fit": bool, "why": str} — the binary membership decision
+    against the criteria text. General quality is a separate, reusable pass
+    (quality()); it is not decided here.
 
     One independent call per post, up to JUDGE_CONCURRENCY in flight, so the
     latency of the batch is one post's call, not ten serialised — and the
@@ -166,8 +216,9 @@ def quality_check(posts: list[dict], criteria_text: str) -> list[dict]:
 
 
 def campaign_posts(posts: list[dict], scores: list[dict]) -> list[dict]:
-    """The fitting subset, with the judge's why attached. What becomes an
-    entry on the feed."""
+    """The fitting subset, with the fit reason and the post's grade attached.
+    The grade comes from the post itself (graded once by quality()); what
+    becomes an entry on the feed."""
     by_index = {d["i"]: d for d in scores}
     out = []
     for i, p in enumerate(posts):
@@ -177,86 +228,3 @@ def campaign_posts(posts: list[dict], scores: list[dict]) -> list[dict]:
             entry["why"] = d.get("why", "")
             out.append(entry)
     return out
-
-
-# --- steering: the feedback loop drives which keyword to judge next -----------
-#
-# The crawl loop feeds the model the keyword ledger (pass rate + volume for
-# every tried term) plus sampled verdicts, so it can prefer abundant directions
-# and drop words the evidence says are noise. Steering only *picks* among the
-# existing candidates — it never invents search terms. New terms come from
-# harvest.py, at feed creation, on purpose.
-
-
-def _history(feed: dict) -> str:
-    """The keyword ledger as the steering model reads it: for each tried
-    keyword, its pass rate, its volume (how often such posts occur in the
-    window), and up to three of the newest verdicts sampled from it."""
-    lines: list[str] = []
-    for kw in feed.get("keywords") or []:
-        rate = kw.get("pass_rate")
-        rate_s = f"{rate:.0%}" if rate is not None else "untried"
-        volume = kw.get("volume") or 0
-        seen = kw.get("posts_seen") or 0
-        confirmed = kw.get("posts_confirmed") or 0
-        lines.append(
-            f"- {kw.get('keyword')!r}: {kw.get('status', 'candidate')}, "
-            f"fit {rate_s} ({confirmed}/{seen}), volume {volume}")
-        for w in (kw.get("whys") or [])[-3:]:
-            lines.append(f"    why: {w.get('why', '')[:120]}")
-    return "\n".join(lines) if lines else "(nothing tested yet)"
-
-
-def steer(feed: dict, candidates: list[dict], tried: set[str]) -> dict | None:
-    """Decide which candidate to judge next, from the ledger.
-
-    `candidates` is the untried pool; `tried` lets the model know which it
-    already attempted. Returns a decision the caller obeys:
-    {"action": "try"|"stop", "pick": <term>, "reason": <str>}, or None when
-    the model's answer is unusable (the caller falls back to the oldest).
-    """
-    criteria_text = criteria(feed)
-    goal = feed.get("goal") or 20
-    have = len(feed.get("posts") or {})
-    candidate_lines = "\n".join(f"- {kw['keyword']}" for kw in candidates)
-    tried_s = ", ".join(sorted(tried)) or "(none yet)"
-    content = _completion_tolerant([
-        {"role": "system", "content":
-            "You steer a Bluesky feed builder. The feed's criteria is the "
-            "reader's own words; posts are judged against it and either fit "
-            "the feed or not. Below you are given the keyword ledger from the "
-            "crawl so far — for every term tried, the share of posts that fit "
-            "(pass rate) and the volume of fresh posts that term finds in the "
-            "window (how often such posts occur). You pick the next candidate "
-            "to judge to reach the goal with the least wasted judging."},
-        {"role": "user", "content":
-            f"The reader asked to see:\n{criteria_text}\n\n"
-            f"Goal: {goal} fitting posts on the feed; {have} so far.\n\n"
-            f"Keyword ledger (term: status, fit rate (confirmed/seen), volume "
-            f"+ sampled verdict reasons):\n{_history(feed)}\n\n"
-            f"Untried candidates to pick from:\n{candidate_lines}\n\n"
-            f"Already tried this run:{tried_s}\n\n"
-            "Choose an action:\n"
-            "  try: pick the single best candidate to judge next. Prefer high "
-            "volume and high expected fit; avoid words whose sibling forms "
-            "already failed.\n"
-            "  stop: the remaining candidates look unpromising and further "
-            "judging would waste the API budget.\n"
-            "Return ONLY a JSON object: {\"action\": \"try\"|\"stop\", "
-            "\"pick\": \"<one candidate term, or \\\"\\\" if not try>\", "
-            "\"reason\": \"<one short sentence>\"}. No prose around it."},
-    ])
-    try:
-        d = json.loads(_find_json_object(content))
-    except json.JSONDecodeError as e:
-        raise ClassifyError(f"steer JSON did not parse ({e})") from None
-    if not isinstance(d, dict):
-        raise ClassifyError("steer returned a non-object")
-    action = str(d.get("action", "")).strip().lower()
-    if action == "try":
-        return {"action": "try", "pick": str(d.get("pick", "")).strip(),
-                "reason": str(d.get("reason", ""))[:200]}
-    if action == "stop":
-        return {"action": "stop", "pick": "",
-                "reason": str(d.get("reason", ""))[:200]}
-    return None

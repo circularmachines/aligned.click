@@ -105,6 +105,7 @@ def extract(post: dict) -> dict:
         "displayName": author.get("displayName", ""),
         "text": record.get("text", ""),
         "createdAt": record.get("createdAt", ""),
+        "replyTo": (record.get("reply") or {}).get("parent", {}).get("uri", ""),
         "likeCount": post.get("likeCount", 0),
         "replyCount": post.get("replyCount", 0),
         "repostCount": post.get("repostCount", 0),

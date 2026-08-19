@@ -1,52 +1,40 @@
 #!/usr/bin/env python3
-"""A small local web front door for the feed builder.
+"""A small local web front door for the one-shot feed round.
 
-Serves feeds/index.html plus a small API:
+Serves feeds/index.html plus one action:
 
-    GET  /api/feeds                          the feeds, with their progress
-    POST /api/add {"text": "…"}              create a feed and assemble it
-    POST /api/remove {"id": "…"}             delete a feed
+    GET  /api/feeds        the feeds and their last suggestion batch
+    POST /api/add {"text"} create a feed, then run the pipeline: seed the
+                          per-post judge by criteria similarity from the
+                          embedded post store and keep the fittings
+                          (pipeline.py). Synchronous — the page shows the
+                          result of the single call.
 
-Creating a feed immediately enqueues it for assembly: the background worker
-runs crawl.assemble until the feed has FEEDS_GOAL posts (status: ready) or
-gives up (status: stalled). The page polls /api/feeds to watch the progress
-x/goal, with the keywords' own chips underneath.
+Posts are not served here. The page draws each pick as an <atproto-post>
+element, which renders the post live from whichever PDS hosts its author —
+the same split the reader uses, for the same reason.
 
-Posts are not served here. The page shows each confirmed post as an
-<atproto-post> element, which draws the post live from whichever PDS hosts its
-author — the same split the reader uses, for the same reason.
-
-`/shared/…` is served from reader/shared/, so the page and the two halves of
-aligned.click use the one copy of atproto-wc plus the colour tokens.
+`/shared/…` is served from reader/shared/, one copy of atproto-wc plus the
+colour tokens.
 
     python3 feeds/web.py            # http://127.0.0.1:8782
 
-Crawl needs the same .env as the CLI: INDEX_BLUESKY_HANDLE /
-INDEX_BLUESKY_APP_PASSWORD to search, and GREENPT_API_KEY to judge.
+Search needs the same .env as the CLI: INDEX_BLUESKY_HANDLE /
+INDEX_BLUESKY_APP_PASSWORD to search, and GREENPT_API_KEY to select.
 """
 import argparse
 import json
 import sys
-import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).parent
-# This module's own directory must win: feeds/ and index/ both ship a crawl.py,
-# and a wrong pick here silently runs the index's crawler (whose main() takes
-# no argv) behind the "Crawl one" button. Each insert(0) pushes earlier entries
-# down, so the feeds dir goes in last to end up on top.
 sys.path.insert(0, str(ROOT.parent / "cause"))
-sys.path.insert(0, str(ROOT.parent / "index"))
 sys.path.insert(0, str(ROOT.parent / "tools"))
+sys.path.insert(0, str(ROOT.parent / "index"))
 sys.path.insert(0, str(ROOT))
 
-# Import the feed crawler FIRST. feeds/ and index/ both ship a crawl.py, and
-# web.py's own path (above) has index/ in it — so a bare `import crawl` after
-# this block could silently bind the index's crawler, whose main() takes no
-# argv, and the "Crawl one" button would die in a thread. Binding it here,
-# while feeds/ is still the top of the path, is what picks ours.
-import crawl  # noqa: E402
 import state  # noqa: E402
 import request  # noqa: E402
 
@@ -67,48 +55,10 @@ CSP = ("default-src 'none'; script-src 'self' 'unsafe-inline'; "
        "connect-src 'self' https:; font-src 'self'; base-uri 'none'; "
        "frame-ancestors 'none'")
 
-# One assembly worker at a time, so state writes are serialized. Pressing
-# Create enqueues the new feed; the worker runs crawl.assemble(feed_id) until
-# the feed is ready or stalled, then takes the next in line.
-_work_lock = threading.Lock()
-_worker = None
-_queue: list[str] = []
-_crawling = False
-_last_crawl_error = None
 
-
-def _set_crawling(value: bool) -> None:
-    global _crawling
-    _crawling = value
-
-
-def _enqueue(feed_id: str) -> None:
-    """Put a feed on the assembly queue and make sure a worker is running."""
-    global _worker
-    with _work_lock:
-        _queue.append(feed_id)
-        if _worker is None or not _worker.is_alive():
-            _worker = threading.Thread(target=_worker_loop, daemon=True)
-            _worker.start()
-
-
-def _worker_loop() -> None:
-    global _last_crawl_error
-    while True:
-        with _work_lock:
-            if not _queue:
-                _set_crawling(False)
-                return
-            feed_id = _queue.pop(0)
-        _set_crawling(True)
-        _last_crawl_error = None
-        try:
-            crawl.assemble(feed_id)
-        except SystemExit:
-            pass
-        except Exception as e:  # noqa: BLE001 — keep the server alive, tell the page
-            _last_crawl_error = f"assembly failed: {e}"
-            print(_last_crawl_error, file=sys.stderr)
+def log(*parts):
+    print(f"[{time.strftime('%H:%M:%S')}] " + " ".join(str(p) for p in parts),
+          file=sys.stderr, flush=True)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -144,8 +94,15 @@ class Handler(BaseHTTPRequestHandler):
     def send_error(self, code, message=None, explain=None):  # noqa: A003 — stdlib shape
         self.reply(code, {"error": message or "error"})
 
-    def log_message(self, *a):  # keep the interactive console quiet
-        pass
+    def log_message(self, format, *args):  # the interactive console stays quiet;
+        pass                              # log() handles the request lines
+
+    def log_request(self, status):
+        try:
+            line = f"{self.command} {self.path} -> {status}"
+        except Exception:  # noqa: BLE001
+            line = f"{self.command} {self.path}"
+        log(line)
 
     # ---- routing ---------------------------------------------------------
 
@@ -156,16 +113,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.serve_static(self.path[len("/shared/"):])
         if self.path == "/api/feeds":
             feeds = state.load_feeds()
-            return self.reply(200, {"feeds": feeds, "crawling": _crawling,
-                                    "last_error": _last_crawl_error})
+            return self.reply(200, {"feeds": feeds})
         return self.reply(404, {"error": "not found"})
 
     def do_POST(self):
         body = self.body()
         if self.path == "/api/add":
             return self.add(body)
-        if self.path == "/api/remove":
-            return self.remove(body)
         return self.reply(404, {"error": "not found"})
 
     # ---- API -------------------------------------------------------------
@@ -177,20 +131,20 @@ class Handler(BaseHTTPRequestHandler):
                                     "kind of posts you want to see more of."})
         try:
             result = request.add(text)
+            feed = result["feed"]
+            feeds = state.load_feeds()
         except Exception as e:  # noqa: BLE001 — a verdict/reason, not a traceback
             return self.reply(400, {"error": str(e)})
-        feed_id = result["feed"]["id"]
-        _enqueue(feed_id)
-        return self.reply(200, {"id": feed_id, "seeds": result["seeds"],
-                                "started": True})
-
-    def remove(self, body):
-        feed_id = body.get("id") or ""
-        feeds = state.load_feeds()
-        if feed_id not in feeds:
-            return self.reply(404, {"error": f"no feed with id {feed_id}."})
-        request.remove(feed_id)
-        return self.reply(200, {"removed": True})
+        return self.reply(200, {
+            "id": feed["id"],
+            "text": feed["text"],
+            "criteria": feed.get("criteria"),
+            "keywords": feed.get("keywords") or [],
+            "suggested": feed["suggested"],
+            "posts": feed.get("posts") or {},
+            "round": feed.get("rounds", 0),
+            "note": feed.get("note"),
+        })
 
     # ---- static -----------------------------------------------------------
 

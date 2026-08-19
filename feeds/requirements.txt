@@ -1,0 +1,6 @@
+# The feeds pipeline's only non-stdlib dependency: LanceDB for the embedded
+# keyword and post stores (green-embedding vectors). Everything else in the
+# pipeline — GreenPT calls, atproto search — is stdlib, like the rest of the
+# repo. Bootstrap:  python3 -m venv feeds/.venv && feeds/.venv/bin/pip install -r feeds/requirements.txt
+lancedb==0.33.0
+pyarrow>=20

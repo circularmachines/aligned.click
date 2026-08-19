@@ -6,15 +6,25 @@ shared vocabulary, no multibinary. The answer is the feed's criteria, verbatim.
 
 Each feed owns everything it needs in one record:
 
-- **text** — the literal answer, which is also the criteria the quality check
+- **text** — the literal answer, which is also the criteria the selector
   judges posts against;
-- **keywords** — the pool, seeded once from the answer when the feed is
-  created (harvest.py) and worked continuously by the crawler (judge.py
-  judges, crawl.py plays the pool out);
-- **posts** — the posts that matched, ready to be shown.
+- **keywords** — the seeder pool, planted once from the answer (harvest.py);
+   each round the selector may propose fresh terms for the next search;
+- **criteria** — the per-post classifier's prompt, refined by each round from
+   the reader's literal words (batch.one_shot);
+- **posts** — the continuously generated feed: fitting posts per-post judges
+   find under the seed pool using the refined criteria (batch.populate);
+- **seen** — uris already suggested, so nothing is offered twice;
+- **included** / **discarded** — the reader's curation of the suggested batch,
+  kept as the feed itself and as negative examples;
+- **suggested** — the current batch of picks, waiting for the reader.
 
-`feeds.json` is `{id: feed}`. Two unrelated feeds share nothing, which is the
-point: a feed is a self-contained answer, cheap to create and to delete.
+Assembly is round-based, not a crawl: one round searches the keyword pool,
+loads everything found into one model context, and returns a small diverse set
+(batch.one_shot). The reader includes or discards each; a later round carries
+that history forward. `feeds.json` is `{id: feed}`. Two unrelated feeds share
+nothing, which is the point: a feed is a self-contained answer, cheap to
+create and to delete.
 """
 
 import json
@@ -27,26 +37,36 @@ ROOT = Path(__file__).parent
 
 # --- thresholds, env-tunable like the index's ---------------------------------
 
-PASS_RATE = float(os.environ.get("FEEDS_PASS_RATE", "0.2"))
+# The seeder pool a new feed starts with, and the cap on a feed's keyword list.
+KEYWORDS_PER_FEED = int(os.environ.get("FEEDS_KEYWORDS", "10"))
+
+# Each keyword search takes at most this many fresh posts into the batch.
 POSTS_PER_KEYWORD = int(os.environ.get("FEEDS_POSTS", "10"))
+
+# The size of one suggested batch — the selector picks this many diverse posts.
+SUGGEST_COUNT = int(os.environ.get("FEEDS_SUGGEST", "8"))
+
+# Hard cap on posts collected into one round's context, whatever the pool size.
+MAX_BATCH = int(os.environ.get("FEEDS_BATCH", "100"))
+
+# Search results older than this are filtered out (the post's own createdAt).
 WINDOW_DAYS = int(os.environ.get("FEEDS_WINDOW_DAYS", "30"))
-MAX_CLASSIFY_RETRIES = int(os.environ.get("FEEDS_MAX_RETRIES", "3"))
 
-# The feed is "assembled" (status: ready) once this many posts sit on it. The
-# assembly loop stops early ONLY when this is reached; topics whose supply is
-# thinner get status: stalled with whatever they found.
-FEEDS_GOAL = int(os.environ.get("FEEDS_GOAL", "20"))
+# --- the embedding pipeline (pipeline.py) -------------------------------------
 
-# Hard cap on assembly cycles of one feed. A stubborn topic must not spend the
-# API budget forever: after this many keyword trials/mine-passes the loop
-# gives up and marks the feed stalled.
-FEEDS_MAX_CYCLES = int(os.environ.get("FEEDS_MAX_CYCLES", "40"))
+# A keyword is indexed by embedding all of its posts from the last
+# WINDOW_DAYS. If the supply exceeds this cap the keyword is disqualified —
+# it is too common to be a useful retrieval signal ("the" can never be
+# indexed). Kept small on purpose; raise it to grow the corpus.
+KEYWORD_POST_CAP = int(os.environ.get("FEEDS_KEYWORD_CAP", "1000"))
 
-# How deep mining goes back into one approved keyword before we call it drained.
-# The first trial judges POSTS_PER_KEYWORD; each mine pass judges this many
-# more (pagination going further into the window, which we cannot get in one
-# sort=latest page).
-MINE_BATCH = int(os.environ.get("FEEDS_MINE_BATCH", "10"))
+# How many unjudged posts the judge is seeded with: the top-N by cosine
+# similarity between the criteria embedding and the embedded post corpus.
+SEED_TOP_N = int(os.environ.get("FEEDS_SEED_N", "20"))
+
+# How many nearest already-indexed keywords the harvest call sees, so it
+# builds on what is known instead of re-proposing it.
+SIMILAR_KEYWORDS = int(os.environ.get("FEEDS_SIMILAR_KEYWORDS", "10"))
 
 # --- files --------------------------------------------------------------------
 
@@ -85,35 +105,37 @@ def new_feed(text: str) -> dict:
         "id": _now(),
         "text": text,
         "createdAt": _now(),
-        "goal": FEEDS_GOAL,
-        "status": "assembling",   # assembling → ready (goal hit) | stalled (gave up)
-        "cycles": 0,
         "keywords": [],
+        "criteria": None,
         "posts": {},
+        "seen": [],
+        "included": {},
+        "discarded": {},
+        "suggested": [],
+        "rounds": 0,
+        "note": None,
     }
 
 
-# --- the keyword pool (per feed, the existing crank) ---------------------------
-
-
-def new_keyword(term: str, found_by: str) -> dict:
-    return {"keyword": term, "found_by": found_by, "status": "candidate",
-            "pass_rate": None, "tested": None, "posts_seen": 0,
-            "posts_confirmed": 0, "volume": 0}
+# --- the keyword pool ---------------------------------------------------------
 
 
 def _norm(term: str) -> str:
     return re.sub(r"\s+", " ", term.strip().lower())
 
 
-def new_from(existing: list[dict], terms: list[str], parent: str) -> list[dict]:
-    """Terms genuinely new to the pool: not already a keyword, not the parent."""
-    known = {_norm(k["keyword"]) for k in existing}
-    known.add(_norm(parent))
-    fresh = []
-    for t in terms:
-        if _norm(t) in known:
+def pool(existing: list[str], new_terms: list[str],
+         limit: int = KEYWORDS_PER_FEED) -> list[str]:
+    """The next seeder pool: existing terms kept, fresh terms added, deduped
+    case-insensitively and capped at `limit`. Order preserves the old pool."""
+    known: set[str] = set()
+    out: list[str] = []
+    for t in list(existing) + list(new_terms):
+        n = _norm(t)
+        if not n or n in known:
             continue
-        known.add(_norm(t))
-        fresh.append(new_keyword(t, parent))
-    return fresh
+        known.add(n)
+        out.append(t.strip())
+        if len(out) >= limit:
+            break
+    return out

@@ -27,6 +27,10 @@ index/stats.json
 # The feed builder's runtime state — one file, one record per feed
 feeds/feeds.json
 
+# The feed pipeline's embedded keyword and post stores (LanceDB) and its venv
+feeds/.lancedb/
+feeds/.venv/
+
 # Shared case file the agent + background workers append findings to
 NOTES.md
 

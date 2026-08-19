@@ -93,7 +93,7 @@ def _judge(feed: dict, kw: dict, views: list[dict], limit: int) -> bool:
     if not views:
         return False
     candidates = [extract(v) for v in views]
-    scores = judge.quality_check(candidates, judge.criteria(feed))
+    scores = judge.quality_check(candidates, feed.get("criteria") or feed["text"])
     confirmed = sum(1 for s in scores if s.get("fit"))
     kw["posts_seen"] = kw.get("posts_seen", 0) + len(scores)
     kw["posts_confirmed"] = kw.get("posts_confirmed", 0) + confirmed
